@@ -93,3 +93,36 @@ add_custom_command(TARGET pdb-browser POST_BUILD
         $<TARGET_FILE_DIR:pdb-browser>
     COMMENT "Copying msdia140.dll"
 )
+
+# ── Tests ────────────────────────────────────────────────────────────────────
+option(ENABLE_TESTS "Build unit tests" OFF)
+if(ENABLE_TESTS)
+    enable_testing()
+    find_package(GTest CONFIG REQUIRED)
+
+    add_executable(pdb-browser-tests
+        tests/PrettifyTests.cpp
+        tests/PdbIndexTests.cpp
+        tests/ExporterTests.cpp
+        # Testable source modules (no DIA/SDL/ImGui dependency)
+        src/pdb/Prettify.cpp
+        src/pdb/PrettifyCpp.cpp
+        src/pdb/PrettifyRust.cpp
+        src/pdb/PdbIndex.cpp
+        src/export/Exporter.cpp
+    )
+
+    target_include_directories(pdb-browser-tests PRIVATE src/)
+
+    target_link_libraries(pdb-browser-tests PRIVATE
+        GTest::gtest_main
+        nlohmann_json::nlohmann_json
+    )
+
+    target_compile_options(pdb-browser-tests PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX /permissive->
+    )
+
+    include(GoogleTest)
+    gtest_discover_tests(pdb-browser-tests)
+endif()

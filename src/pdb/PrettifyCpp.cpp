@@ -475,6 +475,12 @@ static void normalizeWhitespace(std::string& s)
     // Remove space after '<'
     replaceAll(s, "< ", "<");
 
+    // Remove space before ')'
+    replaceAll(s, " )", ")");
+
+    // Remove space after '('
+    replaceAll(s, "( ", "(");
+
     // Normalize " ," to ","
     replaceAll(s, " ,", ",");
 

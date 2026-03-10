@@ -8,6 +8,7 @@
     },
     "imgui-node-editor",
     "sdl3",
-    "nlohmann-json"
+    "nlohmann-json",
+    "gtest"
   ]
 }
