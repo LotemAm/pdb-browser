@@ -1,0 +1,13 @@
+{
+  "name": "pdb-browser",
+  "version": "0.1.0",
+  "dependencies": [
+    {
+      "name": "imgui",
+      "features": ["docking-experimental", "sdl3-binding", "opengl3-binding"]
+    },
+    "imgui-node-editor",
+    "sdl3",
+    "nlohmann-json"
+  ]
+}
