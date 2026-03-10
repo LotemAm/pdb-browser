@@ -305,9 +305,10 @@ void App::render()
     if (!m_exportDialog.isLoading()) {
         m_browserPanel.render(m_state.get());
         m_inspectorPanel.render(m_state.get());
+
+        // TODO: Disabled Graph panel for now since it doesn't render correctly
         //m_graphPanel.render(m_state.get());
-        m_graphPanel.simpleRender(m_state.get());
-        ImGui::ShowDemoWindow(nullptr);
+
         // Force Inspector as the active tab after the first couple of frames
         if (s_focusCountdown > 0 && --s_focusCountdown == 0)
             ImGui::SetWindowFocus("Inspector");
