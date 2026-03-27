@@ -36,6 +36,9 @@ private:
     void getTypedefSymbolData(SymbolId targetId, IDiaSymbol* diaSym, PdbIndex& index);
     void getDataSymbolData(SymbolId targetId, IDiaSymbol* diaSym, PdbIndex& index);
 
+    // Add a type (and its pointer/array chain) to the index, returning its SymbolId.
+    SymbolId addTypeChainToIndex(IDiaSymbol* typeSym, PdbIndex& index, int depth = 0);
+
     CComPtr<IDiaDataSource> m_source;
     CComPtr<IDiaSession> m_session;
 };

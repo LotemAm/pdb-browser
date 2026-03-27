@@ -370,6 +370,37 @@ std::expected<SymbolNode, std::string> PdbSession::loadSymbolData(std::shared_pt
 
 static int64_t variantToInt64(const VARIANT& v);
 
+// Add a DIA type symbol to the index.  If it's a pointer or array, also add
+// intermediate types along the chain so that resolveNavigable() in the UI can
+// walk typeId links from pointer → pointee → … → UDT/Enum/Typedef.
+SymbolId PdbSession::addTypeChainToIndex(IDiaSymbol* typeSym, PdbIndex& index, int depth)
+{
+    if (!typeSym || depth > 8) return INVALID_SYMBOL_ID;
+
+    DWORD pdbId = 0;
+    typeSym->get_symIndexId(&pdbId);
+    SymbolId existing = index.findByPdbId(pdbId);
+    if (existing != INVALID_SYMBOL_ID) return existing;
+
+    DWORD tag = 0;
+    typeSym->get_symTag(&tag);
+    SymbolKind kind = diaTagToKind(tag);
+
+    SymbolId id = index.addSymbol(extractSymbol(typeSym, kind));
+
+    if (kind == SymbolKind::PointerType || kind == SymbolKind::ArrayType) {
+        CComPtr<IDiaSymbol> inner;
+        if (typeSym->get_type(&inner) == S_OK && inner) {
+            SymbolId innerId = addTypeChainToIndex(inner, index, depth + 1);
+            auto* node = index.getSymbol(id);
+            if (node)
+                node->typeId = innerId;
+        }
+    }
+
+    return id;
+}
+
 SymbolNode PdbSession::extractSymbol(IDiaSymbol* sym, SymbolKind kind)
 {
     SymbolNode node;
@@ -879,7 +910,29 @@ void PdbSession::getUDTSymbolData(SymbolId targetId, IDiaSymbol* diaSym, PdbInde
         }
     }
 
-    // ── 4. Friend classes/functions ─────────────────────────────────────────────
+    // ── 4. Static data members ─────────────────────────────────────────────────
+    {
+        CComPtr<IDiaEnumSymbols> ppEnum;
+        if (diaSym->findChildren(SymTagData, nullptr, nsNone, &ppEnum) == S_OK) {
+            IDiaSymbol* pRaw = nullptr;
+            ULONG celt = 0;
+            while (ppEnum->Next(1, &pRaw, &celt) == S_OK && celt == 1) {
+                CComPtr<IDiaSymbol> pData(pRaw);
+                DWORD dataKind = 0;
+                pData->get_dataKind(&dataKind);
+                if (dataKind != DataIsStaticMember)
+                    continue;
+                DWORD dataSymId = 0;
+                pData->get_symIndexId(&dataSymId);
+                SymbolId dataId = index.findByPdbId(dataSymId);
+                if (dataId == INVALID_SYMBOL_ID)
+                    dataId = index.addSymbol(extractSymbol(pData, SymbolKind::Data));
+                children.push_back(dataId);
+            }
+        }
+    }
+
+    // ── 5. Friend classes/functions ─────────────────────────────────────────────
     {
         CComPtr<IDiaEnumSymbols> ppEnum;
         if (diaSym->findChildren(SymTagFriend, nullptr, nsNone, &ppEnum) == S_OK) {
@@ -1023,15 +1076,7 @@ void PdbSession::getDataSymbolData(SymbolId targetId, IDiaSymbol* diaSym, PdbInd
         if (pType->get_length(&len) == S_OK)
             sizeBytes = len;
 
-        DWORD typeSymId = 0;
-        if (pType->get_symIndexId(&typeSymId) == S_OK) {
-            resolvedTypeId = index.findByPdbId(typeSymId);
-            if (resolvedTypeId == INVALID_SYMBOL_ID) {
-                DWORD typeTag = 0;
-                pType->get_symTag(&typeTag);
-                resolvedTypeId = index.addSymbol(extractSymbol(pType, diaTagToKind(typeTag)));
-            }
-        }
+        resolvedTypeId = addTypeChainToIndex(pType, index);
     }
 
     auto* node = index.getSymbol(targetId);

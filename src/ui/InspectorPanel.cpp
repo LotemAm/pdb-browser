@@ -80,6 +80,28 @@ static void renderSourceLink(AppState* state, const std::string& path, uint32_t 
     }
 }
 
+// Resolve through pointer / array chains to find a navigable symbol (UDT, Enum,
+// Typedef).  Returns {navigableSymbol, navigableId} or {nullptr, INVALID} if
+// the chain doesn't bottom out at something inspectable.
+static std::pair<const SymbolNode*, SymbolId> resolveNavigable(
+    const PdbIndex& index, SymbolId startId, int maxDepth = 8)
+{
+    SymbolId cur = startId;
+    for (int i = 0; i < maxDepth && cur != INVALID_SYMBOL_ID; ++i) {
+        const SymbolNode* s = index.getSymbol(cur);
+        if (!s) break;
+        using enum SymbolKind;
+        if (s->kind == UDT || s->kind == Enum || s->kind == Typedef)
+            return {s, cur};
+        if (s->kind == PointerType || s->kind == ArrayType) {
+            cur = s->typeId;   // follow pointee / element type
+            continue;
+        }
+        break;
+    }
+    return {nullptr, INVALID_SYMBOL_ID};
+}
+
 // ── sub-renderers ─────────────────────────────────────────────────────────────
 
 static void renderCompiland(const SymbolNode& sym, AppState* state)
@@ -246,26 +268,18 @@ static void renderFunction(const SymbolNode& sym, AppState* state)
 
         // Return type (clickable if navigable)
         if (!sym.typeName.empty()) {
-            bool navigable = false;
-            const SymbolNode* retSym = nullptr;
-            if (sym.typeId != INVALID_SYMBOL_ID) {
-                retSym = index.getSymbol(sym.typeId);
-                if (retSym) {
-                    using enum SymbolKind;
-                    navigable = retSym->kind == UDT || retSym->kind == Enum || retSym->kind == Typedef;
-                }
-            }
+            auto [navSym, navId] = resolveNavigable(index, sym.typeId);
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Return type");
             ImGui::TableSetColumnIndex(1);
             auto retTypeDn = displayTypeName(sym.typeName, sym.prettyTypeName, state->prettifyNames);
-            if (navigable) {
+            if (navSym) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
                 if (ImGui::SmallButton(std::string(retTypeDn).c_str()))
-                    state->selectSymbol(sym.typeId);
+                    state->selectSymbol(navId);
                 ImGui::PopStyleColor();
                 if (ImGui::IsItemHovered()) {
-                    auto retDn = displayName(*retSym, state->prettifyNames);
+                    auto retDn = displayName(*navSym, state->prettifyNames);
                     ImGui::SetTooltip("Click to inspect %.*s", static_cast<int>(retDn.size()), retDn.data());
                 }
             } else {
@@ -410,24 +424,16 @@ static void renderUDT(const SymbolNode& sym, AppState* state)
                 ImGui::TextUnformatted(m.name.c_str());
                 ImGui::TableSetColumnIndex(2);
                 // Make type clickable if it resolves to an inspectable symbol
-                const SymbolNode* typeSym = nullptr;
-                bool navigable = false;
-                if (m.typeId != INVALID_SYMBOL_ID) {
-                    typeSym = index.getSymbol(m.typeId);
-                    if (typeSym) {
-                        using enum SymbolKind;
-                        navigable = typeSym->kind == UDT || typeSym->kind == Enum || typeSym->kind == Typedef;
-                    }
-                }
+                auto [navSym, navId] = resolveNavigable(index, m.typeId);
                 auto memberTypeDn = displayTypeName(m.typeName, m.prettyTypeName, state->prettifyNames);
-                if (navigable) {
+                if (navSym) {
                     ImGui::PushID(static_cast<int>(mi));
                     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
                     if (ImGui::SmallButton(std::string(memberTypeDn).c_str()))
-                        state->selectSymbol(m.typeId);
+                        state->selectSymbol(navId);
                     ImGui::PopStyleColor();
                     if (ImGui::IsItemHovered()) {
-                        auto typeDn = displayName(*typeSym, state->prettifyNames);
+                        auto typeDn = displayName(*navSym, state->prettifyNames);
                         ImGui::SetTooltip("Click to inspect %.*s", static_cast<int>(typeDn.size()), typeDn.data());
                     }
                     ImGui::PopID();
@@ -497,6 +503,82 @@ static void renderUDT(const SymbolNode& sym, AppState* state)
                     }
                 }
                 ImGui::EndTable();
+            }
+        }
+    }
+
+    // ── Static members (collapsed) ──────────────────────────────────────────
+    if (!sym.children.empty()) {
+        std::vector<SymbolId> statics;
+        for (SymbolId childId : sym.children) {
+            const SymbolNode* child = index.getSymbol(childId);
+            if (child && child->kind == SymbolKind::Data)
+                statics.push_back(childId);
+        }
+
+        if (!statics.empty()) {
+            ImGui::Spacing();
+            auto staticHeader = std::format("Static Members ({})###StaticMembers", statics.size());
+            if (ImGui::CollapsingHeader(staticHeader.c_str())) {
+                float tableH = autoTableHeight(static_cast<int>(statics.size()));
+                if (ImGui::BeginTable("StaticMembers", 4,
+                        ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter |
+                        ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY,
+                        {0, tableH}))
+                {
+                    ImGui::TableSetupScrollFreeze(0, 1);
+                    ImGui::TableSetupColumn("Name");
+                    ImGui::TableSetupColumn("Type");
+                    ImGui::TableSetupColumn("RVA",  ImGuiTableColumnFlags_WidthFixed, 90.f);
+                    ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 70.f);
+                    ImGui::TableHeadersRow();
+
+                    for (SymbolId sId : statics) {
+                        const SymbolNode* s = index.getSymbol(sId);
+                        if (!s) continue;
+
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        auto sDn = displayName(*s, state->prettifyNames);
+                        ImGui::PushID(sId);
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
+                        if (ImGui::SmallButton(sDn.empty() ? "<unnamed>" : std::string(sDn).c_str()))
+                            state->selectSymbol(sId);
+                        ImGui::PopStyleColor();
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Click to inspect %.*s", static_cast<int>(sDn.size()), sDn.data());
+                        ImGui::PopID();
+
+                        ImGui::TableSetColumnIndex(1);
+                        auto sTypeDn = displayTypeName(s->typeName, s->prettyTypeName, state->prettifyNames);
+                        auto [navSym, navId] = resolveNavigable(index, s->typeId);
+                        if (navSym) {
+                            ImGui::PushID(sId + 300000);
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
+                            if (ImGui::SmallButton(std::string(sTypeDn).c_str()))
+                                state->selectSymbol(navId);
+                            ImGui::PopStyleColor();
+                            if (ImGui::IsItemHovered()) {
+                                auto dn = displayName(*navSym, state->prettifyNames);
+                                ImGui::SetTooltip("Click to inspect %.*s", static_cast<int>(dn.size()), dn.data());
+                            }
+                            ImGui::PopID();
+                        } else {
+                            ImGui::TextUnformatted(std::string(sTypeDn).c_str());
+                        }
+
+                        ImGui::TableSetColumnIndex(2);
+                        if (s->rva != 0) {
+                            auto rvaStr = std::format("0x{:08X}", s->rva);
+                            ImGui::TextUnformatted(rvaStr.c_str());
+                        }
+
+                        ImGui::TableSetColumnIndex(3);
+                        if (s->sizeBytes > 0)
+                            ImGui::Text("%llu", s->sizeBytes);
+                    }
+                    ImGui::EndTable();
+                }
             }
         }
     }
@@ -674,28 +756,20 @@ static void renderData(const SymbolNode& sym, AppState* state)
             row("RVA", rvaStr.c_str());
         }
 
-        // Type (clickable if navigable)
+        // Type (clickable if navigable — follows pointer/array chains)
         if (!sym.typeName.empty()) {
-            const SymbolNode* typeSym = nullptr;
-            bool navigable = false;
-            if (sym.typeId != INVALID_SYMBOL_ID) {
-                typeSym = index.getSymbol(sym.typeId);
-                if (typeSym) {
-                    using enum SymbolKind;
-                    navigable = typeSym->kind == UDT || typeSym->kind == Enum || typeSym->kind == Typedef;
-                }
-            }
+            auto [navSym, navId] = resolveNavigable(index, sym.typeId);
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Type");
             ImGui::TableSetColumnIndex(1);
             auto typeDn = displayTypeName(sym.typeName, sym.prettyTypeName, state->prettifyNames);
-            if (navigable) {
+            if (navSym) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
                 if (ImGui::SmallButton(std::string(typeDn).c_str()))
-                    state->selectSymbol(sym.typeId);
+                    state->selectSymbol(navId);
                 ImGui::PopStyleColor();
                 if (ImGui::IsItemHovered()) {
-                    auto dn = displayName(*typeSym, state->prettifyNames);
+                    auto dn = displayName(*navSym, state->prettifyNames);
                     ImGui::SetTooltip("Click to inspect %.*s", static_cast<int>(dn.size()), dn.data());
                 }
             } else {
