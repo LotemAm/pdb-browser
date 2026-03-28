@@ -15,7 +15,14 @@ const char* codeLangLabel(CodeLang lang);
 // Empty if the symbol kind doesn't support code generation.
 std::vector<CodeLang> applicableLanguages(const SymbolNode& sym);
 
+// Options for UDT code generation.
+struct CodeGenOptions {
+    bool includeStatics{false};    // emit static data members
+    bool includeFunctions{false};  // emit member functions
+};
+
 // Generate a code declaration for `sym` in the given language.
 // Returns an empty string if the symbol kind is not supported.
 std::string generateCode(const PdbIndex& index, const SymbolNode& sym,
-                         CodeLang lang, bool prettify);
+                         CodeLang lang, bool prettify,
+                         const CodeGenOptions& opts = {});

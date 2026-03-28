@@ -2,6 +2,7 @@
 #include "app/AppState.h"
 #include "codegen/CodeGen.h"
 #include "pdb/PdbIndex.h"
+#include "pdb/PdbSession.h"
 #include "pdb/Prettify.h"
 #include "pdb/SymbolNode.h"
 
@@ -9,6 +10,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <format>
+#include <thread>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -354,7 +356,7 @@ constexpr int MAX_TABLE_ROWS = 15;
 static float autoTableHeight(int rowCount)
 {
     if (rowCount <= 0) return 0.f;
-    int visible = std::min(rowCount, MAX_TABLE_ROWS);
+    int visible = (std::min)(rowCount, MAX_TABLE_ROWS);
     float rowH  = ImGui::GetTextLineHeightWithSpacing();
     // +1 for the header row, small pad so the last row isn't clipped
     return rowH * (visible + 1) + ImGui::GetStyle().CellPadding.y * 2.f;
@@ -905,6 +907,10 @@ void InspectorPanel::render(AppState* state)
         if (ImGui::Button("</>")) {
             m_applicableLangs = std::move(langs);
             m_selectedLang    = 0;
+            m_includeStatics    = false;
+            m_includeFunctions  = false;
+            m_childrenLoadedFor = INVALID_SYMBOL_ID;
+            m_wasLoading        = false;
             m_generatedCode   = generateCode(*state->activeIndex, *sym,
                                                 m_applicableLangs[0], state->prettifyNames);
             m_showCodePopup = true;
@@ -957,6 +963,37 @@ void InspectorPanel::render(AppState* state)
 
 // ── Code view popup ──────────────────────────────────────────────────────────
 
+void InspectorPanel::regenerateCode(AppState* state)
+{
+    const SymbolNode* sym = state->activeIndex->getSymbol(state->selectedSymbol);
+    if (!sym || m_applicableLangs.empty()) return;
+    CodeGenOptions opts;
+    opts.includeStatics  = m_includeStatics;
+    opts.includeFunctions = m_includeFunctions;
+    m_generatedCode = generateCode(*state->activeIndex, *sym,
+                                   m_applicableLangs[m_selectedLang],
+                                   state->prettifyNames, opts);
+}
+
+// Background-load type data for all child symbols (statics + functions).
+static void backgroundLoadChildren(AppState* state, SymbolId parentId,
+                                   std::atomic<bool>* loadingFlag)
+{
+    CoInitialize(nullptr);
+
+    const SymbolNode* parent = state->activeIndex->getSymbol(parentId);
+    if (parent) {
+        for (SymbolId childId : parent->children) {
+            const SymbolNode* child = state->activeIndex->getSymbol(childId);
+            if (child && !child->childrenLoaded)
+                (void)state->activePdbSession->loadSymbolData(state->activeIndex, childId);
+        }
+    }
+
+    CoUninitialize();
+    loadingFlag->store(false);
+}
+
 void InspectorPanel::renderCodePopup(AppState* state)
 {
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
@@ -964,6 +1001,14 @@ void InspectorPanel::renderCodePopup(AppState* state)
     if (!ImGui::BeginPopupModal("##CodeViewPopup", &m_showCodePopup)) return;
 
     const SymbolNode* sym = state->activeIndex->getSymbol(state->selectedSymbol);
+    bool loading = m_childrenLoading.load();
+
+    // Detect background loading completion — regenerate code
+    if (m_wasLoading && !loading) {
+        m_childrenLoadedFor = state->selectedSymbol;
+        regenerateCode(state);
+    }
+    m_wasLoading = loading;
 
     // Language selector
     if (!m_applicableLangs.empty()) {
@@ -973,9 +1018,7 @@ void InspectorPanel::renderCodePopup(AppState* state)
                 bool selected = (i == m_selectedLang);
                 if (ImGui::Selectable(codeLangLabel(m_applicableLangs[i]), selected)) {
                     m_selectedLang = i;
-                    if (sym)
-                        m_generatedCode = generateCode(*state->activeIndex, *sym,
-                                                       m_applicableLangs[i], state->prettifyNames);
+                    regenerateCode(state);
                 }
                 if (selected) ImGui::SetItemDefaultFocus();
             }
@@ -985,6 +1028,40 @@ void InspectorPanel::renderCodePopup(AppState* state)
         ImGui::SameLine();
         if (ImGui::SmallButton("Copy"))
             ImGui::SetClipboardText(m_generatedCode.c_str());
+
+        // Checkboxes for UDT symbols
+        if (sym && sym->kind == SymbolKind::UDT) {
+            bool changed = false;
+
+            if (loading) ImGui::BeginDisabled();
+
+            if (ImGui::Checkbox("Static members", &m_includeStatics))
+                changed = true;
+            ImGui::SameLine();
+            if (ImGui::Checkbox("Member functions", &m_includeFunctions))
+                changed = true;
+
+            if (loading) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("(loading...)");
+                ImGui::EndDisabled();
+            }
+
+            if (changed) {
+                bool needsChildren = m_includeStatics || m_includeFunctions;
+                bool alreadyLoaded = m_childrenLoadedFor == state->selectedSymbol;
+
+                if (needsChildren && !alreadyLoaded && !loading) {
+                    // Kick off background loading
+                    m_childrenLoading.store(true);
+                    m_wasLoading = true;
+                    std::thread(backgroundLoadChildren, state, state->selectedSymbol,
+                                &m_childrenLoading).detach();
+                } else {
+                    regenerateCode(state);
+                }
+            }
+        }
     }
 
     ImGui::Separator();

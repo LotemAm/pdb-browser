@@ -34,12 +34,12 @@ std::vector<CodeLang> applicableLanguages(const SymbolNode& sym)
 }
 
 std::string generateCode(const PdbIndex& index, const SymbolNode& sym,
-                         CodeLang lang, bool prettify)
+                         CodeLang lang, bool prettify, const CodeGenOptions& opts)
 {
     switch (lang) {
-    case CodeLang::C:    return generateC(index, sym, prettify);
-    case CodeLang::Cpp:  return generateCpp(index, sym, prettify);
-    case CodeLang::Rust: return generateRust(index, sym, prettify);
+    case CodeLang::C:    return generateC(index, sym, prettify, opts);
+    case CodeLang::Cpp:  return generateCpp(index, sym, prettify, opts);
+    case CodeLang::Rust: return generateRust(index, sym, prettify, opts);
     default:             return {};
     }
 }
