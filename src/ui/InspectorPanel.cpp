@@ -482,16 +482,23 @@ static void renderUDT(const SymbolNode& sym, AppState* state)
         }
     }
 
-    // ── Member functions ─────────────────────────────────────────────────────
-    if (!sym.children.empty()) {
-        // Count functions for auto-sizing
-        int fnCount = 0;
-        for (SymbolId cid : sym.children) {
-            const SymbolNode* fn = index.getSymbol(cid);
-            if (fn && fn->kind == SymbolKind::Function) ++fnCount;
+    // ── Classify children in a single pass ─────────────────────────────────
+    // Avoid repeated iterations + heap allocations every frame.
+    int fnCount = 0, staticCount = 0, vfuncCount = 0;
+    for (SymbolId childId : sym.children) {
+        const SymbolNode* child = index.getSymbol(childId);
+        if (!child) continue;
+        if (child->kind == SymbolKind::Function) {
+            ++fnCount;
+            if (std::get<FunctionData>(child->kindData).isVirtual)
+                ++vfuncCount;
+        } else if (child->kind == SymbolKind::Data) {
+            ++staticCount;
         }
+    }
 
-        if (fnCount > 0) {
+    // ── Member functions ─────────────────────────────────────────────────────
+    if (fnCount > 0) {
             ImGui::Spacing();
             ImGui::SeparatorText("Member Functions");
             float tableH = autoTableHeight(fnCount);
@@ -539,131 +546,112 @@ static void renderUDT(const SymbolNode& sym, AppState* state)
                 }
                 ImGui::EndTable();
             }
-        }
     }
 
     // ── Static members (collapsed) ──────────────────────────────────────────
-    if (!sym.children.empty()) {
-        std::vector<SymbolId> statics;
-        for (SymbolId childId : sym.children) {
-            const SymbolNode* child = index.getSymbol(childId);
-            if (child && child->kind == SymbolKind::Data)
-                statics.push_back(childId);
-        }
+    if (staticCount > 0) {
+        ImGui::Spacing();
+        auto staticHeader = std::format("Static Members ({})###StaticMembers", staticCount);
+        if (ImGui::CollapsingHeader(staticHeader.c_str())) {
+            float tableH = autoTableHeight(staticCount);
+            if (ImGui::BeginTable("StaticMembers", 4,
+                    ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter |
+                    ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY,
+                    {0, tableH}))
+            {
+                ImGui::TableSetupScrollFreeze(0, 1);
+                ImGui::TableSetupColumn("Name");
+                ImGui::TableSetupColumn("Type");
+                ImGui::TableSetupColumn("RVA",  ImGuiTableColumnFlags_WidthFixed, 90.f);
+                ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 70.f);
+                ImGui::TableHeadersRow();
 
-        if (!statics.empty()) {
-            ImGui::Spacing();
-            auto staticHeader = std::format("Static Members ({})###StaticMembers", statics.size());
-            if (ImGui::CollapsingHeader(staticHeader.c_str())) {
-                float tableH = autoTableHeight(static_cast<int>(statics.size()));
-                if (ImGui::BeginTable("StaticMembers", 4,
-                        ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter |
-                        ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY,
-                        {0, tableH}))
-                {
-                    ImGui::TableSetupScrollFreeze(0, 1);
-                    ImGui::TableSetupColumn("Name");
-                    ImGui::TableSetupColumn("Type");
-                    ImGui::TableSetupColumn("RVA",  ImGuiTableColumnFlags_WidthFixed, 90.f);
-                    ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 70.f);
-                    ImGui::TableHeadersRow();
+                for (SymbolId sId : sym.children) {
+                    const SymbolNode* s = index.getSymbol(sId);
+                    if (!s || s->kind != SymbolKind::Data) continue;
 
-                    for (SymbolId sId : statics) {
-                        const SymbolNode* s = index.getSymbol(sId);
-                        if (!s) continue;
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    auto sDn = displayName(*s, state->prettifyNames);
+                    ImGui::PushID(sId);
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
+                    if (ImGui::SmallButton(sDn.empty() ? "<unnamed>" : std::string(sDn).c_str()))
+                        state->selectSymbol(sId);
+                    ImGui::PopStyleColor();
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Click to inspect %.*s", static_cast<int>(sDn.size()), sDn.data());
+                    ImGui::PopID();
 
-                        ImGui::TableNextRow();
-                        ImGui::TableSetColumnIndex(0);
-                        auto sDn = displayName(*s, state->prettifyNames);
-                        ImGui::PushID(sId);
+                    ImGui::TableSetColumnIndex(1);
+                    auto sTypeDn = displayTypeName(s->typeName, s->prettyTypeName, state->prettifyNames);
+                    auto [navSym, navId] = resolveNavigable(index, s->typeId);
+                    if (navSym) {
+                        ImGui::PushID(sId + 300000);
                         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
-                        if (ImGui::SmallButton(sDn.empty() ? "<unnamed>" : std::string(sDn).c_str()))
-                            state->selectSymbol(sId);
+                        if (ImGui::SmallButton(std::string(sTypeDn).c_str()))
+                            state->selectSymbol(navId);
                         ImGui::PopStyleColor();
-                        if (ImGui::IsItemHovered())
-                            ImGui::SetTooltip("Click to inspect %.*s", static_cast<int>(sDn.size()), sDn.data());
+                        if (ImGui::IsItemHovered()) {
+                            auto dn = displayName(*navSym, state->prettifyNames);
+                            ImGui::SetTooltip("Click to inspect %.*s", static_cast<int>(dn.size()), dn.data());
+                        }
                         ImGui::PopID();
-
-                        ImGui::TableSetColumnIndex(1);
-                        auto sTypeDn = displayTypeName(s->typeName, s->prettyTypeName, state->prettifyNames);
-                        auto [navSym, navId] = resolveNavigable(index, s->typeId);
-                        if (navSym) {
-                            ImGui::PushID(sId + 300000);
-                            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
-                            if (ImGui::SmallButton(std::string(sTypeDn).c_str()))
-                                state->selectSymbol(navId);
-                            ImGui::PopStyleColor();
-                            if (ImGui::IsItemHovered()) {
-                                auto dn = displayName(*navSym, state->prettifyNames);
-                                ImGui::SetTooltip("Click to inspect %.*s", static_cast<int>(dn.size()), dn.data());
-                            }
-                            ImGui::PopID();
-                        } else {
-                            ImGui::TextUnformatted(std::string(sTypeDn).c_str());
-                        }
-
-                        ImGui::TableSetColumnIndex(2);
-                        if (s->rva != 0) {
-                            auto rvaStr = std::format("0x{:08X}", s->rva);
-                            ImGui::TextUnformatted(rvaStr.c_str());
-                        }
-
-                        ImGui::TableSetColumnIndex(3);
-                        if (s->sizeBytes > 0)
-                            ImGui::Text("%llu", s->sizeBytes);
+                    } else {
+                        ImGui::TextUnformatted(std::string(sTypeDn).c_str());
                     }
-                    ImGui::EndTable();
+
+                    ImGui::TableSetColumnIndex(2);
+                    if (s->rva != 0) {
+                        auto rvaStr = std::format("0x{:08X}", s->rva);
+                        ImGui::TextUnformatted(rvaStr.c_str());
+                    }
+
+                    ImGui::TableSetColumnIndex(3);
+                    if (s->sizeBytes > 0)
+                        ImGui::Text("%llu", s->sizeBytes);
                 }
+                ImGui::EndTable();
             }
         }
     }
 
     // ── Virtual function table (collapsed) ───────────────────────────────────
-    if (!sym.children.empty()) {
-        std::vector<SymbolId> vfuncs;
-        for (SymbolId childId : sym.children) {
-            const SymbolNode* fn = index.getSymbol(childId);
-            if (fn && fn->kind == SymbolKind::Function
-                && std::get<FunctionData>(fn->kindData).isVirtual)
-                vfuncs.push_back(childId);
-        }
+    if (vfuncCount > 0) {
+        ImGui::Spacing();
+        auto vtableHeader = std::format("VTable ({} entries)", vfuncCount);
+        if (ImGui::CollapsingHeader(vtableHeader.c_str())) {
+            float tableH = autoTableHeight(vfuncCount);
+            if (ImGui::BeginTable("VTable", 2,
+                    ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter |
+                    ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY,
+                    {0, tableH}))
+            {
+                ImGui::TableSetupScrollFreeze(0, 1);
+                ImGui::TableSetupColumn("Name");
+                ImGui::TableSetupColumn("Pure", ImGuiTableColumnFlags_WidthFixed, 40.f);
+                ImGui::TableHeadersRow();
 
-        if (!vfuncs.empty()) {
-            ImGui::Spacing();
-            auto vtableHeader = std::format("VTable ({} entries)", vfuncs.size());
-            if (ImGui::CollapsingHeader(vtableHeader.c_str())) {
-                float tableH = autoTableHeight(static_cast<int>(vfuncs.size()));
-                if (ImGui::BeginTable("VTable", 2,
-                        ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter |
-                        ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_ScrollY,
-                        {0, tableH}))
-                {
-                    ImGui::TableSetupScrollFreeze(0, 1);
-                    ImGui::TableSetupColumn("Name");
-                    ImGui::TableSetupColumn("Pure", ImGuiTableColumnFlags_WidthFixed, 40.f);
-                    ImGui::TableHeadersRow();
+                for (SymbolId childId : sym.children) {
+                    const SymbolNode* fn = index.getSymbol(childId);
+                    if (!fn || fn->kind != SymbolKind::Function) continue;
+                    if (!std::get<FunctionData>(fn->kindData).isVirtual) continue;
 
-                    for (SymbolId vfId : vfuncs) {
-                        const SymbolNode* fn = index.getSymbol(vfId);
-                        if (!fn) continue;
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    auto vfDn = displayName(*fn, state->prettifyNames);
+                    ImGui::PushID(childId);
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
+                    if (ImGui::SmallButton(std::string(vfDn).c_str()))
+                        state->selectSymbol(childId);
+                    ImGui::PopStyleColor();
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Click to inspect %.*s", static_cast<int>(vfDn.size()), vfDn.data());
+                    ImGui::PopID();
 
-                        ImGui::TableNextRow();
-                        ImGui::TableSetColumnIndex(0);
-                        auto vfDn = displayName(*fn, state->prettifyNames);
-                        ImGui::PushID(vfId);
-                        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
-                        if (ImGui::SmallButton(std::string(vfDn).c_str()))
-                            state->selectSymbol(vfId);
-                        ImGui::PopStyleColor();
-                        if (ImGui::IsItemHovered())
-                            ImGui::SetTooltip("Click to inspect %.*s", static_cast<int>(vfDn.size()), vfDn.data());
-                        ImGui::PopID();
-
-                        ImGui::TableSetColumnIndex(1);
-                        ImGui::TextUnformatted(std::get<FunctionData>(fn->kindData).isPure ? "yes" : "");
-                    }
-                    ImGui::EndTable();
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::TextUnformatted(std::get<FunctionData>(fn->kindData).isPure ? "yes" : "");
                 }
+                ImGui::EndTable();
             }
         }
     }
