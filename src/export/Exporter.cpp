@@ -8,21 +8,6 @@
 
 using json = nlohmann::json;
 
-// ── JSON helpers ─────────────────────────────────────────────────────────────
-
-static const char* callingConvStr(CallingConv cc)
-{
-    switch (cc) {
-    case CallingConv::CDecl:    return "cdecl";
-    case CallingConv::StdCall:  return "stdcall";
-    case CallingConv::FastCall: return "fastcall";
-    case CallingConv::ThisCall: return "thiscall";
-    case CallingConv::ClrCall:  return "clrcall";
-    case CallingConv::Other:    return "other";
-    default:                    return "unknown";
-    }
-}
-
 static json templateArgToJson(const TemplateArg& arg)
 {
     json j;

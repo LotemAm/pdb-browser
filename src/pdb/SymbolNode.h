@@ -49,6 +49,34 @@ enum class CallingConv : uint8_t {
     Other,
 };
 
+// Plain label (e.g. "cdecl") — used by export.
+constexpr inline const char* callingConvStr(CallingConv cc)
+{
+    switch (cc) {
+    case CallingConv::CDecl:    return "cdecl";
+    case CallingConv::StdCall:  return "stdcall";
+    case CallingConv::FastCall: return "fastcall";
+    case CallingConv::ThisCall: return "thiscall";
+    case CallingConv::ClrCall:  return "clrcall";
+    case CallingConv::Other:    return "other";
+    default:                    return "unknown";
+    }
+}
+
+// Display label with __ prefix (e.g. "__cdecl") — used by UI.
+constexpr inline const char* callingConvLabel(CallingConv cc)
+{
+    switch (cc) {
+    case CallingConv::CDecl:    return "__cdecl";
+    case CallingConv::StdCall:  return "__stdcall";
+    case CallingConv::FastCall: return "__fastcall";
+    case CallingConv::ThisCall: return "__thiscall";
+    case CallingConv::ClrCall:  return "__clrcall";
+    case CallingConv::Other:    return "(other)";
+    default:                    return "";
+    }
+}
+
 // UDT sub-kind (mirrors UdtTag from cvconst.h)
 enum class UdtTag : uint8_t {
     Struct,

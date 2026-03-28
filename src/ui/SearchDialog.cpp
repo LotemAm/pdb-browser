@@ -1,4 +1,5 @@
 #include "SearchDialog.h"
+#include "UiHelpers.h"
 #include "app/AppState.h"
 #include "pdb/PdbIndex.h"
 #include "pdb/Prettify.h"
@@ -6,21 +7,10 @@
 
 #include <imgui.h>
 
-#include <algorithm>
 #include <format>
-#include <ranges>
 #include <string>
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-
-static bool caseInsensitiveContains(std::string_view haystack, const std::string& needle)
-{
-    if (needle.empty()) return true;
-    return std::ranges::search(haystack, needle,
-        [](char a, char b) { return std::tolower(static_cast<unsigned char>(a))
-                                  == std::tolower(static_cast<unsigned char>(b)); }
-    ).begin() != haystack.end();
-}
 
 static SymbolKind kindFromFilter(int filter)
 {
@@ -49,7 +39,7 @@ void SearchDialog::rebuildResults(const AppState* state)
         const SymbolNode* sym = index->getSymbol(static_cast<SymbolId>(i));
         if (!sym) continue;
         if (wantKind != SymbolKind::Unknown && sym->kind != wantKind) continue;
-        // Match against raw name, and also prettified name when toggle is on
+        // Match against raw name, undecorated name, and prettified name
         if (!caseInsensitiveContains(sym->name, state->searchQuery) &&
             !caseInsensitiveContains(sym->undecoratedName, state->searchQuery) &&
             !(state->prettifyNames &&
@@ -143,13 +133,8 @@ void SearchDialog::render(AppState* state)
 
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            bool selected = (sym->id == state->selectedSymbol);
-            ImGui::PushID(static_cast<int>(sym->id));
             auto dn = displayName(*sym, state->prettifyNames);
-            if (ImGui::Selectable(dn.empty() ? "<unnamed>" : std::string(dn).c_str(),
-                                  selected, ImGuiSelectableFlags_SpanAllColumns))
-                state->selectSymbol(sym->id);
-            ImGui::PopID();
+            renderSelectableSymbolRow(state, *sym, dn);
             ImGui::TableSetColumnIndex(1);
             ImGui::TextDisabled(kindStr(sym->kind));
             ImGui::TableSetColumnIndex(2);
