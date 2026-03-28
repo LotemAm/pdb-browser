@@ -39,6 +39,11 @@ private:
     // Add a type (and its pointer/array chain) to the index, returning its SymbolId.
     SymbolId addTypeChainToIndex(IDiaSymbol* typeSym, PdbIndex& index, int depth = 0);
 
+    // Resolve the compiland a DIA symbol belongs to (multi-strategy).
+    SymbolId resolveLexicalCompiland(IDiaSymbol* diaSym, PdbIndex& index);
+    SymbolId registerCompiland(IDiaSymbol* compilandSym, PdbIndex& index);
+    SymbolId findCompilandByRVA(DWORD rva, PdbIndex& index);
+
     CComPtr<IDiaDataSource> m_source;
     CComPtr<IDiaSession> m_session;
 };

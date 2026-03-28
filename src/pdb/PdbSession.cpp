@@ -500,6 +500,95 @@ SymbolNode PdbSession::extractSymbol(IDiaSymbol* sym, SymbolKind kind)
     return node;
 }
 
+// Register a compiland DIA symbol in the index, returning its SymbolId.
+SymbolId PdbSession::registerCompiland(IDiaSymbol* compilandSym, PdbIndex& index)
+{
+    DWORD pdbId = 0;
+    compilandSym->get_symIndexId(&pdbId);
+    SymbolId id = index.findByPdbId(pdbId);
+    if (id == INVALID_SYMBOL_ID)
+        id = index.addSymbol(extractSymbol(compilandSym, SymbolKind::Compiland));
+    return id;
+}
+
+// Find the compiland that contains the given RVA via line-number info.
+SymbolId PdbSession::findCompilandByRVA(DWORD rva, PdbIndex& index)
+{
+    if (!m_session || rva == 0) return INVALID_SYMBOL_ID;
+    CComPtr<IDiaEnumLineNumbers> pLines;
+    if (m_session->findLinesByRVA(rva, 1, &pLines) != S_OK || !pLines)
+        return INVALID_SYMBOL_ID;
+    CComPtr<IDiaLineNumber> pLine;
+    ULONG fetched = 0;
+    if (pLines->Next(1, &pLine, &fetched) != S_OK || fetched != 1)
+        return INVALID_SYMBOL_ID;
+    CComPtr<IDiaSymbol> compilandSym;
+    if (pLine->get_compiland(&compilandSym) != S_OK || !compilandSym)
+        return INVALID_SYMBOL_ID;
+    return registerCompiland(compilandSym, index);
+}
+
+// Resolve the compiland that a DIA symbol belongs to.  Uses multiple
+// strategies because global-scope types don't have a compiland as their
+// lexical parent.
+SymbolId PdbSession::resolveLexicalCompiland(IDiaSymbol* diaSym, PdbIndex& index)
+{
+    // ── Strategy 1: walk the lexical-parent chain ────────────────────────────
+    // Works for functions, data, and symbols nested inside a compiland.
+    {
+        CComPtr<IDiaSymbol> current;
+        if (diaSym->get_lexicalParent(&current) == S_OK && current) {
+            for (int depth = 0; depth < 10 && current; ++depth) {
+                DWORD tag = 0;
+                current->get_symTag(&tag);
+                if (tag == SymTagCompiland)
+                    return registerCompiland(current, index);
+                if (tag == SymTagExe)
+                    break;                          // reached global scope
+                CComPtr<IDiaSymbol> parent;
+                if (current->get_lexicalParent(&parent) != S_OK || !parent)
+                    break;
+                current = parent;
+            }
+        }
+    }
+
+    // ── Strategy 2: use the symbol's own RVA ─────────────────────────────────
+    // Data / functions that somehow didn't resolve via the chain.
+    {
+        DWORD rva = 0;
+        if (diaSym->get_relativeVirtualAddress(&rva) == S_OK && rva != 0) {
+            SymbolId id = findCompilandByRVA(rva, index);
+            if (id != INVALID_SYMBOL_ID) return id;
+        }
+    }
+
+    // ── Strategy 3: for UDTs, find the first member function with an RVA ────
+    // Global-scope types have no compiland parent, but their member functions
+    // are compiled inside a specific compiland.
+    {
+        DWORD tag = 0;
+        diaSym->get_symTag(&tag);
+        if (tag == SymTagUDT) {
+            CComPtr<IDiaEnumSymbols> funcs;
+            if (diaSym->findChildren(SymTagFunction, nullptr, nsNone, &funcs) == S_OK && funcs) {
+                IDiaSymbol* pRaw = nullptr;
+                ULONG celt = 0;
+                while (funcs->Next(1, &pRaw, &celt) == S_OK && celt == 1) {
+                    CComPtr<IDiaSymbol> func(pRaw);
+                    DWORD funcRva = 0;
+                    if (func->get_relativeVirtualAddress(&funcRva) == S_OK && funcRva != 0) {
+                        SymbolId id = findCompilandByRVA(funcRva, index);
+                        if (id != INVALID_SYMBOL_ID) return id;
+                    }
+                }
+            }
+        }
+    }
+
+    return INVALID_SYMBOL_ID;
+}
+
 void PdbSession::indexCompilands(IDiaSession* session, PdbIndex& index)
 {
     CComPtr<IDiaSymbol> global;
@@ -772,6 +861,9 @@ void PdbSession::getFunctionSymbolData(SymbolId targetId, IDiaSymbol* diaSym, Pd
         }
     }
 
+    // ── Compiland (lexical parent) ──────────────────────────────────────────
+    SymbolId compilandId = resolveLexicalCompiland(diaSym, index);
+
     // ── Write back ───────────────────────────────────────────────────────────
     auto* node = index.getSymbol(targetId);
     if (node) {
@@ -784,6 +876,7 @@ void PdbSession::getFunctionSymbolData(SymbolId targetId, IDiaSymbol* diaSym, Pd
         node->prettyTypeName   = prettifyName(node->typeName);
         node->typeId           = returnTypeId;
         node->parentId         = parentId;
+        node->compilandId      = compilandId;
         node->templateArgs     = resolveTemplateArgs(node->name, index);
         node->childrenLoaded   = true;
     }
@@ -956,6 +1049,9 @@ void PdbSession::getUDTSymbolData(SymbolId targetId, IDiaSymbol* diaSym, PdbInde
         }
     }
 
+    // ── Compiland (lexical parent) ──────────────────────────────────────────
+    SymbolId compilandId = resolveLexicalCompiland(diaSym, index);
+
     // ── Write back (index may have reallocated above, so re-fetch by id) ─────
     auto* node = index.getSymbol(targetId);
     if (node) {
@@ -964,6 +1060,7 @@ void PdbSession::getUDTSymbolData(SymbolId targetId, IDiaSymbol* diaSym, PdbInde
         udt.baseClasses      = std::move(baseClasses);
         udt.friends          = std::move(friends);
         node->children       = std::move(children);
+        node->compilandId    = compilandId;
         node->templateArgs   = resolveTemplateArgs(node->name, index);
         node->childrenLoaded = true;
     }
@@ -1024,11 +1121,15 @@ void PdbSession::getEnumSymbolData(SymbolId targetId, IDiaSymbol* diaSym, PdbInd
         }
     }
 
+    // ── Compiland (lexical parent) ──────────────────────────────────────────
+    SymbolId compilandId = resolveLexicalCompiland(diaSym, index);
+
     auto* node = index.getSymbol(targetId);
     if (node) {
         std::get<EnumData>(node->kindData).enumValues = std::move(values);
         node->typeName       = std::move(underlyingTypeName);
         node->prettyTypeName = prettifyName(node->typeName);
+        node->compilandId    = compilandId;
         node->childrenLoaded = true;
     }
 }
@@ -1053,11 +1154,15 @@ void PdbSession::getTypedefSymbolData(SymbolId targetId, IDiaSymbol* diaSym, Pdb
         }
     }
 
+    // ── Compiland (lexical parent) ──────────────────────────────────────────
+    SymbolId compilandId = resolveLexicalCompiland(diaSym, index);
+
     auto* node = index.getSymbol(targetId);
     if (node) {
         node->typeName       = std::move(resolvedName);
         node->prettyTypeName = prettifyName(node->typeName);
         node->typeId         = resolvedTypeId;
+        node->compilandId    = compilandId;
         node->childrenLoaded = true;
     }
 }
@@ -1079,6 +1184,9 @@ void PdbSession::getDataSymbolData(SymbolId targetId, IDiaSymbol* diaSym, PdbInd
         resolvedTypeId = addTypeChainToIndex(pType, index);
     }
 
+    // ── Compiland (lexical parent) ──────────────────────────────────────────
+    SymbolId compilandId = resolveLexicalCompiland(diaSym, index);
+
     auto* node = index.getSymbol(targetId);
     if (node) {
         node->typeName       = std::move(resolvedTypeName);
@@ -1086,6 +1194,7 @@ void PdbSession::getDataSymbolData(SymbolId targetId, IDiaSymbol* diaSym, PdbInd
         node->typeId         = resolvedTypeId;
         if (node->sizeBytes == 0)
             node->sizeBytes = sizeBytes;
+        node->compilandId    = compilandId;
         node->childrenLoaded = true;
     }
 }

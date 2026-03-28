@@ -155,7 +155,8 @@ struct SymbolNode {
     std::string typeName;                    // resolved type name (typedef target, enum underlying, data type)
     std::string prettyTypeName;              // prettified typeName (computed at load time)
     SymbolId    typeId{INVALID_SYMBOL_ID};   // return type (func) or value type (typedef/array)
-    SymbolId    parentId{INVALID_SYMBOL_ID}; // compiland or owning UDT
+    SymbolId    parentId{INVALID_SYMBOL_ID}; // owning UDT (for member functions)
+    SymbolId    compilandId{INVALID_SYMBOL_ID}; // lexical parent compiland
 
     // Children (functions in compiland, members in UDT, etc.) — lazy loaded
     bool                   childrenLoaded{false};

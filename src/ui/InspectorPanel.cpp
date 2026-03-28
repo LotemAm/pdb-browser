@@ -102,6 +102,27 @@ static std::pair<const SymbolNode*, SymbolId> resolveNavigable(
     return {nullptr, INVALID_SYMBOL_ID};
 }
 
+// Render a clickable compiland row inside a 2-column property table.
+// Call between BeginTable/EndTable.  No-op when the symbol has no compiland.
+static void renderCompilandLink(const SymbolNode& sym, AppState* state)
+{
+    if (sym.compilandId == INVALID_SYMBOL_ID) return;
+    const auto& index = *state->activeIndex;
+    const SymbolNode* comp = index.getSymbol(sym.compilandId);
+    if (!comp) return;
+
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Compiland");
+    ImGui::TableSetColumnIndex(1);
+    auto compDn = displayName(*comp, state->prettifyNames);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
+    if (ImGui::SmallButton(std::string(compDn).c_str()))
+        state->selectSymbol(sym.compilandId);
+    ImGui::PopStyleColor();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Click to inspect %.*s", static_cast<int>(compDn.size()), compDn.data());
+}
+
 // ── sub-renderers ─────────────────────────────────────────────────────────────
 
 static void renderCompiland(const SymbolNode& sym, AppState* state)
@@ -317,6 +338,8 @@ static void renderFunction(const SymbolNode& sym, AppState* state)
             renderSourceLink(state, sym.sourceFile, sym.sourceLine);
         }
 
+        renderCompilandLink(sym, state);
+
         ImGui::EndTable();
     }
 
@@ -345,6 +368,16 @@ static void renderUDT(const SymbolNode& sym, AppState* state)
     ImGui::SeparatorText(udtTagStr(udt.udtTag));
 
     ImGui::Text("Size: %u bytes", static_cast<unsigned>(sym.sizeBytes));
+
+    // Compiland link
+    if (sym.compilandId != INVALID_SYMBOL_ID) {
+        if (ImGui::BeginTable("UdtCompTable", 2, ImGuiTableFlags_BordersInnerV)) {
+            ImGui::TableSetupColumn("Field", ImGuiTableColumnFlags_WidthFixed, 130.f);
+            ImGui::TableSetupColumn("Value");
+            renderCompilandLink(sym, state);
+            ImGui::EndTable();
+        }
+    }
 
     renderTemplateArgs(sym, state);
 
@@ -644,6 +677,17 @@ static void renderEnum(const SymbolNode& sym, AppState* state)
         auto underlyingDn = displayTypeName(sym.typeName, sym.prettyTypeName, state->prettifyNames);
         ImGui::Text("Underlying type: %.*s", static_cast<int>(underlyingDn.size()), underlyingDn.data());
     }
+
+    // Compiland link
+    if (sym.compilandId != INVALID_SYMBOL_ID) {
+        if (ImGui::BeginTable("EnumCompTable", 2, ImGuiTableFlags_BordersInnerV)) {
+            ImGui::TableSetupColumn("Field", ImGuiTableColumnFlags_WidthFixed, 130.f);
+            ImGui::TableSetupColumn("Value");
+            renderCompilandLink(sym, state);
+            ImGui::EndTable();
+        }
+    }
+
     if (!en.enumValues.empty()) {
         ImGui::Spacing();
         ImGui::Text("%zu enumerators:", en.enumValues.size());
@@ -711,6 +755,8 @@ static void renderTypedef(const SymbolNode& sym, AppState* state)
             auto resolvedTypeDn = displayTypeName(sym.typeName, sym.prettyTypeName, state->prettifyNames);
             row("Resolves to", std::string(resolvedTypeDn).c_str());
         }
+
+        renderCompilandLink(sym, state);
 
         ImGui::EndTable();
     }
@@ -794,6 +840,8 @@ static void renderData(const SymbolNode& sym, AppState* state)
             ImGui::TableSetColumnIndex(1);
             renderSourceLink(state, sym.sourceFile, sym.sourceLine);
         }
+
+        renderCompilandLink(sym, state);
 
         ImGui::EndTable();
     }

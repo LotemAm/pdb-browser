@@ -144,7 +144,13 @@ static json symbolToJson(const PdbIndex& index, const SymbolNode& sym,
             j["const_value"] = ds->constValue;
     }
 
-    // ── Compiland ────────────────────────────────────────────────────────────
+    // ── Compiland reference (all symbol kinds) ──────────────────────────────
+    if (sym.compilandId != INVALID_SYMBOL_ID) {
+        if (const auto* comp = index.getSymbol(sym.compilandId))
+            j["compiland"] = comp->name;
+    }
+
+    // ── Compiland own data ──────────────────────────────────────────────────
     if (const auto* comp = std::get_if<CompilandData>(&sym.kindData)) {
         if (opts.includeSourceFiles && !comp->sourceFiles.empty()) {
             json files = json::array();
