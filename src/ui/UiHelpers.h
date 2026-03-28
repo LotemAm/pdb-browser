@@ -6,6 +6,20 @@
 
 struct AppState;
 
+// Null-terminate a string_view cheaply.  All views returned by displayName()
+// and displayTypeName() point into std::string members or string literals,
+// so they are already null-terminated and we can use .data() directly.
+// This helper documents and enforces that invariant with a debug-only check.
+inline const char* sv_cstr(std::string_view sv)
+{
+    // Assumes caller only passes views into null-terminated storage.
+    // In debug builds we can assert; in release we trust the invariant.
+#ifndef NDEBUG
+    if (!sv.empty()) assert(sv.data()[sv.size()] == '\0');
+#endif
+    return sv.empty() ? "" : sv.data();
+}
+
 // ── Text search ──────────────────────────────────────────────────────────────
 
 // Case-insensitive substring search.

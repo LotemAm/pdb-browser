@@ -127,20 +127,23 @@ void SearchDialog::render(AppState* state)
         ImGui::TableHeadersRow();
 
         const PdbIndex* index = state->activeIndex.get();
-        for (SymbolId id : m_results) {
-            const SymbolNode* sym = index->getSymbol(id);
-            if (!sym) continue;
 
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            auto dn = displayName(*sym, state->prettifyNames);
-            renderSelectableSymbolRow(state, *sym, dn);
-            ImGui::TableSetColumnIndex(1);
-            ImGui::TextDisabled(kindStr(sym->kind));
-            ImGui::TableSetColumnIndex(2);
-            if (sym->rva) {
-                auto rvaStr = std::format("0x{:08X}", sym->rva);
-                ImGui::TextUnformatted(rvaStr.c_str());
+        ImGuiListClipper clipper;
+        clipper.Begin(static_cast<int>(m_results.size()));
+        while (clipper.Step()) {
+            for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+                const SymbolNode* sym = index->getSymbol(m_results[row]);
+                if (!sym) continue;
+
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                auto dn = displayName(*sym, state->prettifyNames);
+                renderSelectableSymbolRow(state, *sym, dn);
+                ImGui::TableSetColumnIndex(1);
+                ImGui::TextDisabled(kindStr(sym->kind));
+                ImGui::TableSetColumnIndex(2);
+                if (sym->rva)
+                    ImGui::Text("0x%08X", sym->rva);
             }
         }
 

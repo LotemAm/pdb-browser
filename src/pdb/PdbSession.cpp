@@ -312,6 +312,20 @@ PdbSession::load(const std::string& path)
     auto index = std::make_shared<PdbIndex>();
     index->setPdbPath(path);
 
+    // Pre-size the index based on global scope symbol count to avoid
+    // repeated reallocations of the large SymbolNode vector.
+    {
+        CComPtr<IDiaSymbol> global;
+        if (m_session->get_globalScope(&global) == S_OK) {
+            CComPtr<IDiaEnumSymbols> allSyms;
+            if (global->findChildren(SymTagNull, nullptr, nsNone, &allSyms) == S_OK) {
+                LONG count = 0;
+                if (allSyms->get_Count(&count) == S_OK && count > 0)
+                    index->reserve(static_cast<size_t>(count));
+            }
+        }
+    }
+
     indexCompilands(m_session, *index);
     indexTypes(m_session, *index);
     indexGlobals(m_session, *index);

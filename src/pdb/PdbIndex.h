@@ -10,6 +10,8 @@
 class PdbIndex {
 public:
     // ── Build helpers (called only from background thread) ───────────────────
+    // Pre-allocate storage based on estimated total symbol count.
+    void reserve(size_t estimatedSymbols);
     SymbolId addSymbol(SymbolNode node);
 
     // ── Queries (main thread, read-only) ─────────────────────────────────────

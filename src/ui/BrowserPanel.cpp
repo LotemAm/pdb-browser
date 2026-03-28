@@ -54,6 +54,45 @@ static void renderSymbolNode(AppState* state, const SymbolNode* node)
     }
 }
 
+// ── filter cache ─────────────────────────────────────────────────────────────
+
+static void filterIds(const PdbIndex* index, const std::vector<SymbolId>& source,
+                      std::vector<SymbolId>& dest, const char* filter, bool prettify)
+{
+    dest.clear();
+    bool hasFilter = filter && filter[0] != '\0';
+    if (!hasFilter) {
+        dest = source;
+        return;
+    }
+    dest.reserve(source.size() / 4); // heuristic
+    for (SymbolId id : source) {
+        const SymbolNode* node = index->getSymbol(id);
+        if (!node) continue;
+        if (symbolMatchesFilter(*node, filter, prettify))
+            dest.push_back(id);
+    }
+}
+
+void BrowserPanel::rebuildFilteredIds(AppState* state)
+{
+    PdbIndex* index = state->activeIndex.get();
+    const char* filter = m_filterBuf;
+    bool prettify = state->prettifyNames;
+
+    filterIds(index, index->udts(),       m_filteredUdts,       filter, prettify);
+    filterIds(index, index->enums(),      m_filteredEnums,      filter, prettify);
+    filterIds(index, index->functions(),  m_filteredFunctions,  filter, prettify);
+    filterIds(index, index->compilands(), m_filteredCompilands, filter, prettify);
+    filterIds(index, index->typedefs(),   m_filteredTypedefs,   filter, prettify);
+    filterIds(index, index->globals(),    m_filteredGlobals,    filter, prettify);
+
+    m_cachedFilter = filter;
+    m_cachedPrettify = prettify;
+    m_cachedIndex = index;
+    m_cachedSymbolCount = index->symbolCount();
+}
+
 // ── generic tab renderer ─────────────────────────────────────────────────────
 
 // Column descriptor for browser tabs.
@@ -63,12 +102,12 @@ struct BrowserColumn {
     float width = 0.f;
 };
 
-// Render a browser tab table over a range of symbol IDs.
+// Render a browser tab table over a pre-filtered range of symbol IDs using ImGuiListClipper.
 // `extraColumns` is called after the name column for each row.
-template <typename IdRange, typename ExtraColumnsFn>
-static void renderBrowserTab(AppState* state, PdbIndex* index, const char* filter,
+template <typename ExtraColumnsFn>
+static void renderBrowserTab(AppState* state, PdbIndex* index,
                              const char* tableId, const BrowserColumn* columns, int columnCount,
-                             const IdRange& ids, ExtraColumnsFn extraColumns)
+                             const std::vector<SymbolId>& filteredIds, ExtraColumnsFn extraColumns)
 {
     if (!ImGui::BeginTable(tableId, columnCount, kBrowserTableFlags))
         return;
@@ -78,17 +117,20 @@ static void renderBrowserTab(AppState* state, PdbIndex* index, const char* filte
         ImGui::TableSetupColumn(columns[i].name, columns[i].flags, columns[i].width);
     ImGui::TableHeadersRow();
 
-    for (SymbolId id : ids) {
-        const SymbolNode* node = index->getSymbol(id);
-        if (!node) continue;
-        if (!symbolMatchesFilter(*node, filter, state->prettifyNames)) continue;
-        auto dn = displayName(*node, state->prettifyNames);
+    ImGuiListClipper clipper;
+    clipper.Begin(static_cast<int>(filteredIds.size()));
+    while (clipper.Step()) {
+        for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+            const SymbolNode* node = index->getSymbol(filteredIds[row]);
+            if (!node) continue;
+            auto dn = displayName(*node, state->prettifyNames);
 
-        ImGui::TableNextRow();
-        ImGui::TableSetColumnIndex(0);
-        renderSelectableSymbolRow(state, *node, dn);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            renderSelectableSymbolRow(state, *node, dn);
 
-        extraColumns(node);
+            extraColumns(node);
+        }
     }
 
     ImGui::EndTable();
@@ -96,14 +138,14 @@ static void renderBrowserTab(AppState* state, PdbIndex* index, const char* filte
 
 // ── tab renderers ────────────────────────────────────────────────────────────
 
-static void renderTypesTab(AppState* state, PdbIndex* index, const char* filter)
+static void renderTypesTab(AppState* state, PdbIndex* index, const std::vector<SymbolId>& ids)
 {
     BrowserColumn cols[] = {
         {"Name"},
         {"Size (bytes)", ImGuiTableColumnFlags_WidthFixed, 100.f},
         {"Loaded",       ImGuiTableColumnFlags_WidthFixed, 55.f},
     };
-    renderBrowserTab(state, index, filter, "TypesTable", cols, 3, index->udts(),
+    renderBrowserTab(state, index, "TypesTable", cols, 3, ids,
         [](const SymbolNode* node) {
             ImGui::TableSetColumnIndex(1);
             ImGui::Text("%u", node->sizeBytes);
@@ -112,53 +154,53 @@ static void renderTypesTab(AppState* state, PdbIndex* index, const char* filter)
         });
 }
 
-static void renderEnumsTab(AppState* state, PdbIndex* index, const char* filter)
+static void renderEnumsTab(AppState* state, PdbIndex* index, const std::vector<SymbolId>& ids)
 {
     BrowserColumn cols[] = {
         {"Name"},
         {"Loaded", ImGuiTableColumnFlags_WidthFixed, 55.f},
     };
-    renderBrowserTab(state, index, filter, "EnumsTable", cols, 2, index->enums(),
+    renderBrowserTab(state, index, "EnumsTable", cols, 2, ids,
         [](const SymbolNode* node) {
             ImGui::TableSetColumnIndex(1);
             if (node->childrenLoaded) ImGui::TextUnformatted("*");
         });
 }
 
-static void renderCompilandsTab(AppState* state, PdbIndex* index, const char* filter)
+static void renderCompilandsTab(AppState* state, PdbIndex* index, const std::vector<SymbolId>& ids)
 {
     BrowserColumn cols[] = {
         {"Name"},
         {"Loaded", ImGuiTableColumnFlags_WidthFixed, 55.f},
     };
-    renderBrowserTab(state, index, filter, "CompilandsTable", cols, 2, index->compilands(),
+    renderBrowserTab(state, index, "CompilandsTable", cols, 2, ids,
         [](const SymbolNode* node) {
             ImGui::TableSetColumnIndex(1);
             if (node->childrenLoaded) ImGui::TextUnformatted("*");
         });
 }
 
-static void renderTypedefsTab(AppState* state, PdbIndex* index, const char* filter)
+static void renderTypedefsTab(AppState* state, PdbIndex* index, const std::vector<SymbolId>& ids)
 {
     BrowserColumn cols[] = {
         {"Name"},
         {"Loaded", ImGuiTableColumnFlags_WidthFixed, 55.f},
     };
-    renderBrowserTab(state, index, filter, "TypedefsTable", cols, 2, index->typedefs(),
+    renderBrowserTab(state, index, "TypedefsTable", cols, 2, ids,
         [](const SymbolNode* node) {
             ImGui::TableSetColumnIndex(1);
             if (node->childrenLoaded) ImGui::TextUnformatted("*");
         });
 }
 
-static void renderGlobalsTab(AppState* state, PdbIndex* index, const char* filter)
+static void renderGlobalsTab(AppState* state, PdbIndex* index, const std::vector<SymbolId>& ids)
 {
     BrowserColumn cols[] = {{"Name"}};
-    renderBrowserTab(state, index, filter, "GlobalsTable", cols, 1, index->globals(),
+    renderBrowserTab(state, index, "GlobalsTable", cols, 1, ids,
         [](const SymbolNode*) {});
 }
 
-static void renderFunctionsTab(AppState* state, PdbIndex* index, const char* filter)
+static void renderFunctionsTab(AppState* state, PdbIndex* index, const std::vector<SymbolId>& ids)
 {
     BrowserColumn cols[] = {
         {"Name"},
@@ -166,7 +208,7 @@ static void renderFunctionsTab(AppState* state, PdbIndex* index, const char* fil
         {"Size",   ImGuiTableColumnFlags_WidthFixed, 80.f},
         {"Loaded", ImGuiTableColumnFlags_WidthFixed, 55.f},
     };
-    renderBrowserTab(state, index, filter, "FunctionsTable", cols, 4, index->functions(),
+    renderBrowserTab(state, index, "FunctionsTable", cols, 4, ids,
         [](const SymbolNode* node) {
             ImGui::TableSetColumnIndex(1);
             if (node->rva != 0) ImGui::Text("0x%08X", node->rva);
@@ -194,15 +236,22 @@ void BrowserPanel::render(AppState* state)
     // ── Filter input ─────────────────────────────────────────────────────────
     ImGui::SetNextItemWidth(-1);
     ImGui::InputTextWithHint("##BrowserFilter", "Filter symbols...", m_filterBuf, sizeof(m_filterBuf));
-    const char* filter = m_filterBuf;
+
+    // Rebuild filtered ID caches only when inputs change
+    bool needsRebuild = (m_cachedFilter != m_filterBuf)
+                      || (m_cachedPrettify != state->prettifyNames)
+                      || (m_cachedIndex != static_cast<const void*>(index))
+                      || (m_cachedSymbolCount != index->symbolCount());
+    if (needsRebuild)
+        rebuildFilteredIds(state);
 
     if (ImGui::BeginTabBar("BrowserTabs")) {
-        if (ImGui::BeginTabItem("Types"))      { state->activeBrowserTab = BrowserTab::Types;      renderTypesTab(state, index, filter);      ImGui::EndTabItem(); }
-        if (ImGui::BeginTabItem("Enums"))      { state->activeBrowserTab = BrowserTab::Enums;      renderEnumsTab(state, index, filter);      ImGui::EndTabItem(); }
-        if (ImGui::BeginTabItem("Functions"))  { state->activeBrowserTab = BrowserTab::Functions;  renderFunctionsTab(state, index, filter);  ImGui::EndTabItem(); }
-        if (ImGui::BeginTabItem("Compilands")) { state->activeBrowserTab = BrowserTab::Compilands; renderCompilandsTab(state, index, filter); ImGui::EndTabItem(); }
-        if (ImGui::BeginTabItem("Typedefs"))   { state->activeBrowserTab = BrowserTab::Typedefs;   renderTypedefsTab(state, index, filter);   ImGui::EndTabItem(); }
-        if (ImGui::BeginTabItem("Globals"))    { state->activeBrowserTab = BrowserTab::Globals;    renderGlobalsTab(state, index, filter);    ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("Types"))      { state->activeBrowserTab = BrowserTab::Types;      renderTypesTab(state, index, m_filteredUdts);           ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("Enums"))      { state->activeBrowserTab = BrowserTab::Enums;      renderEnumsTab(state, index, m_filteredEnums);           ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("Functions"))  { state->activeBrowserTab = BrowserTab::Functions;  renderFunctionsTab(state, index, m_filteredFunctions);   ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("Compilands")) { state->activeBrowserTab = BrowserTab::Compilands; renderCompilandsTab(state, index, m_filteredCompilands); ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("Typedefs"))   { state->activeBrowserTab = BrowserTab::Typedefs;   renderTypedefsTab(state, index, m_filteredTypedefs);     ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("Globals"))    { state->activeBrowserTab = BrowserTab::Globals;    renderGlobalsTab(state, index, m_filteredGlobals);       ImGui::EndTabItem(); }
         ImGui::EndTabBar();
     }
 

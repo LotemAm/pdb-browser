@@ -60,7 +60,7 @@ bool renderSelectableSymbolRow(AppState* state, const SymbolNode& node,
     bool selected = (node.id == state->selectedSymbol);
     ImGui::PushID(static_cast<int>(node.id));
     bool clicked = ImGui::Selectable(
-        displayLabel.empty() ? "<unnamed>" : std::string(displayLabel).c_str(),
+        displayLabel.empty() ? "<unnamed>" : sv_cstr(displayLabel),
         selected, ImGuiSelectableFlags_SpanAllColumns);
     if (clicked)
         state->selectSymbol(node.id);
@@ -75,7 +75,7 @@ void renderSymbolButton(AppState* state, SymbolId targetId,
     if (pushIdHint >= 0)
         ImGui::PushID(pushIdHint);
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
-    if (ImGui::SmallButton(label.empty() ? "<unnamed>" : std::string(label).c_str()))
+    if (ImGui::SmallButton(label.empty() ? "<unnamed>" : sv_cstr(label)))
         state->selectSymbol(targetId);
     ImGui::PopStyleColor();
     if (ImGui::IsItemHovered())
@@ -95,7 +95,7 @@ void renderClickableType(AppState* state, SymbolId typeId,
         auto tooltipName = displayName(*navSym, state->prettifyNames);
         renderSymbolButton(state, navId, displayLabel, tooltipName, pushIdHint);
     } else {
-        ImGui::TextUnformatted(std::string(displayLabel).c_str());
+        ImGui::TextUnformatted(sv_cstr(displayLabel), sv_cstr(displayLabel) + displayLabel.size());
     }
 }
 

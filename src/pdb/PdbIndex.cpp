@@ -1,5 +1,12 @@
 #include "PdbIndex.h"
 
+void PdbIndex::reserve(size_t estimatedSymbols)
+{
+    m_symbols.reserve(estimatedSymbols);
+    m_pdbIdIndex.reserve(estimatedSymbols);
+    m_nameIndex.reserve(estimatedSymbols);
+}
+
 SymbolId PdbIndex::addSymbol(SymbolNode node)
 {
     // Deduplicate by PDB-internal ID — DIA can return the same symbol

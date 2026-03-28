@@ -1,4 +1,5 @@
 #include "InspectorPanel.h"
+#include "UiHelpers.h"
 #include "app/AppState.h"
 #include "codegen/CodeGen.h"
 #include "pdb/PdbIndex.h"
@@ -118,7 +119,7 @@ static void renderCompilandLink(const SymbolNode& sym, AppState* state)
     ImGui::TableSetColumnIndex(1);
     auto compDn = displayName(*comp, state->prettifyNames);
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
-    if (ImGui::SmallButton(std::string(compDn).c_str()))
+    if (ImGui::SmallButton(sv_cstr(compDn)))
         state->selectSymbol(sym.compilandId);
     ImGui::PopStyleColor();
     if (ImGui::IsItemHovered())
@@ -195,7 +196,7 @@ static void renderCompiland(const SymbolNode& sym, AppState* state)
                 auto dn = displayName(*child, state->prettifyNames);
                 ImGui::PushID(childId);
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
-                if (ImGui::SmallButton(dn.empty() ? "<unnamed>" : std::string(dn).c_str()))
+                if (ImGui::SmallButton(dn.empty() ? "<unnamed>" : sv_cstr(dn)))
                     state->selectSymbol(childId);
                 ImGui::PopStyleColor();
                 if (ImGui::IsItemHovered())
@@ -236,7 +237,7 @@ static void renderTemplateArgs(const SymbolNode& sym, AppState* state)
             if (typeSym) {
                 ImGui::PushID(static_cast<int>(i) + 200000);
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
-                if (ImGui::SmallButton(std::string(argDn).c_str()))
+                if (ImGui::SmallButton(sv_cstr(argDn)))
                     state->selectSymbol(ta.typeId);
                 ImGui::PopStyleColor();
                 if (ImGui::IsItemHovered()) {
@@ -247,22 +248,10 @@ static void renderTemplateArgs(const SymbolNode& sym, AppState* state)
                 continue;
             }
         }
-        ImGui::TextUnformatted(std::string(argDn).c_str());
+        ImGui::TextUnformatted(sv_cstr(argDn));
     }
 }
 
-static const char* callingConvLabel(CallingConv cc)
-{
-    switch (cc) {
-    case CallingConv::CDecl:    return "__cdecl";
-    case CallingConv::StdCall:  return "__stdcall";
-    case CallingConv::FastCall: return "__fastcall";
-    case CallingConv::ThisCall: return "__thiscall";
-    case CallingConv::ClrCall:  return "__clrcall";
-    case CallingConv::Other:    return "(other)";
-    default:                    return "";
-    }
-}
 
 static void renderFunction(const SymbolNode& sym, AppState* state)
 {
@@ -298,7 +287,7 @@ static void renderFunction(const SymbolNode& sym, AppState* state)
             auto retTypeDn = displayTypeName(sym.typeName, sym.prettyTypeName, state->prettifyNames);
             if (navSym) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
-                if (ImGui::SmallButton(std::string(retTypeDn).c_str()))
+                if (ImGui::SmallButton(sv_cstr(retTypeDn)))
                     state->selectSymbol(navId);
                 ImGui::PopStyleColor();
                 if (ImGui::IsItemHovered()) {
@@ -306,7 +295,7 @@ static void renderFunction(const SymbolNode& sym, AppState* state)
                     ImGui::SetTooltip("Click to inspect %.*s", static_cast<int>(retDn.size()), retDn.data());
                 }
             } else {
-                ImGui::TextUnformatted(std::string(retTypeDn).c_str());
+                ImGui::TextUnformatted(sv_cstr(retTypeDn));
             }
         }
 
@@ -325,7 +314,7 @@ static void renderFunction(const SymbolNode& sym, AppState* state)
                 ImGui::TableSetColumnIndex(1);
                 auto parentDn = displayName(*parent, state->prettifyNames);
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
-                if (ImGui::SmallButton(std::string(parentDn).c_str()))
+                if (ImGui::SmallButton(sv_cstr(parentDn)))
                     state->selectSymbol(sym.parentId);
                 ImGui::PopStyleColor();
                 if (ImGui::IsItemHovered())
@@ -395,7 +384,7 @@ static void renderUDT(const SymbolNode& sym, AppState* state)
             auto bcDn = displayName(*bc, state->prettifyNames);
             ImGui::PushID(bcId);
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
-            if (ImGui::SmallButton(std::string(bcDn).c_str()))
+            if (ImGui::SmallButton(sv_cstr(bcDn)))
                 state->selectSymbol(bcId);
             ImGui::PopStyleColor();
             if (ImGui::IsItemHovered())
@@ -414,7 +403,7 @@ static void renderUDT(const SymbolNode& sym, AppState* state)
             auto frDn = displayName(*fr, state->prettifyNames);
             ImGui::PushID(static_cast<int>(i) + 100000); // unique within panel
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
-            if (ImGui::SmallButton(std::string(frDn).c_str()))
+            if (ImGui::SmallButton(sv_cstr(frDn)))
                 state->selectSymbol(udt.friends[i]);
             ImGui::PopStyleColor();
             if (ImGui::IsItemHovered())
@@ -464,7 +453,7 @@ static void renderUDT(const SymbolNode& sym, AppState* state)
                 if (navSym) {
                     ImGui::PushID(static_cast<int>(mi));
                     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
-                    if (ImGui::SmallButton(std::string(memberTypeDn).c_str()))
+                    if (ImGui::SmallButton(sv_cstr(memberTypeDn)))
                         state->selectSymbol(navId);
                     ImGui::PopStyleColor();
                     if (ImGui::IsItemHovered()) {
@@ -473,7 +462,7 @@ static void renderUDT(const SymbolNode& sym, AppState* state)
                     }
                     ImGui::PopID();
                 } else {
-                    ImGui::TextUnformatted(std::string(memberTypeDn).c_str());
+                    ImGui::TextUnformatted(sv_cstr(memberTypeDn));
                 }
                 ImGui::TableSetColumnIndex(3);
                 ImGui::Text("%u", m.sizeBytes);
@@ -524,7 +513,7 @@ static void renderUDT(const SymbolNode& sym, AppState* state)
                     auto fnDn = displayName(*fn, state->prettifyNames);
                     ImGui::PushID(childId);
                     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
-                    if (ImGui::SmallButton(std::string(fnDn).c_str()))
+                    if (ImGui::SmallButton(sv_cstr(fnDn)))
                         state->selectSymbol(childId);
                     ImGui::PopStyleColor();
                     if (ImGui::IsItemHovered())
@@ -575,7 +564,7 @@ static void renderUDT(const SymbolNode& sym, AppState* state)
                     auto sDn = displayName(*s, state->prettifyNames);
                     ImGui::PushID(sId);
                     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
-                    if (ImGui::SmallButton(sDn.empty() ? "<unnamed>" : std::string(sDn).c_str()))
+                    if (ImGui::SmallButton(sDn.empty() ? "<unnamed>" : sv_cstr(sDn)))
                         state->selectSymbol(sId);
                     ImGui::PopStyleColor();
                     if (ImGui::IsItemHovered())
@@ -588,7 +577,7 @@ static void renderUDT(const SymbolNode& sym, AppState* state)
                     if (navSym) {
                         ImGui::PushID(sId + 300000);
                         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
-                        if (ImGui::SmallButton(std::string(sTypeDn).c_str()))
+                        if (ImGui::SmallButton(sv_cstr(sTypeDn)))
                             state->selectSymbol(navId);
                         ImGui::PopStyleColor();
                         if (ImGui::IsItemHovered()) {
@@ -597,7 +586,7 @@ static void renderUDT(const SymbolNode& sym, AppState* state)
                         }
                         ImGui::PopID();
                     } else {
-                        ImGui::TextUnformatted(std::string(sTypeDn).c_str());
+                        ImGui::TextUnformatted(sv_cstr(sTypeDn));
                     }
 
                     ImGui::TableSetColumnIndex(2);
@@ -641,7 +630,7 @@ static void renderUDT(const SymbolNode& sym, AppState* state)
                     auto vfDn = displayName(*fn, state->prettifyNames);
                     ImGui::PushID(childId);
                     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
-                    if (ImGui::SmallButton(std::string(vfDn).c_str()))
+                    if (ImGui::SmallButton(sv_cstr(vfDn)))
                         state->selectSymbol(childId);
                     ImGui::PopStyleColor();
                     if (ImGui::IsItemHovered())
@@ -720,7 +709,7 @@ static void renderTypedef(const SymbolNode& sym, AppState* state)
 
         {
             auto aliasDn = displayName(sym, state->prettifyNames);
-            row("Alias", std::string(aliasDn).c_str());
+            row("Alias", sv_cstr(aliasDn));
         }
 
         if (sym.typeId != INVALID_SYMBOL_ID) {
@@ -731,7 +720,7 @@ static void renderTypedef(const SymbolNode& sym, AppState* state)
             ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted("Resolves to");
             ImGui::TableSetColumnIndex(1);
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
-            if (ImGui::SmallButton(std::string(resolvedTypeDn).c_str()))
+            if (ImGui::SmallButton(sv_cstr(resolvedTypeDn)))
                 state->selectSymbol(sym.typeId);
             ImGui::PopStyleColor();
             if (ImGui::IsItemHovered())
@@ -743,7 +732,7 @@ static void renderTypedef(const SymbolNode& sym, AppState* state)
             }
         } else if (!sym.typeName.empty()) {
             auto resolvedTypeDn = displayTypeName(sym.typeName, sym.prettyTypeName, state->prettifyNames);
-            row("Resolves to", std::string(resolvedTypeDn).c_str());
+            row("Resolves to", sv_cstr(resolvedTypeDn));
         }
 
         renderCompilandLink(sym, state);
@@ -801,7 +790,7 @@ static void renderData(const SymbolNode& sym, AppState* state)
             auto typeDn = displayTypeName(sym.typeName, sym.prettyTypeName, state->prettifyNames);
             if (navSym) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
-                if (ImGui::SmallButton(std::string(typeDn).c_str()))
+                if (ImGui::SmallButton(sv_cstr(typeDn)))
                     state->selectSymbol(navId);
                 ImGui::PopStyleColor();
                 if (ImGui::IsItemHovered()) {
@@ -809,7 +798,7 @@ static void renderData(const SymbolNode& sym, AppState* state)
                     ImGui::SetTooltip("Click to inspect %.*s", static_cast<int>(dn.size()), dn.data());
                 }
             } else {
-                ImGui::TextUnformatted(std::string(typeDn).c_str());
+                ImGui::TextUnformatted(sv_cstr(typeDn));
             }
         }
 
