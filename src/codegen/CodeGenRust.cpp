@@ -169,6 +169,15 @@ static std::string toRustSignature(std::string_view sig, bool isMember)
         }
     }
 
+    // Strip calling conventions (e.g. __cdecl, __stdcall, __thiscall, __fastcall)
+    for (auto cc : {"__cdecl ", "__stdcall ", "__thiscall ", "__fastcall ", "__vectorcall "}) {
+        auto pos = s.find(cc);
+        if (pos != std::string::npos) {
+            s.erase(pos, std::string_view{cc}.size());
+            break;
+        }
+    }
+
     // Strip trailing "const" after the closing paren
     auto closeParen = s.rfind(')');
     if (closeParen != std::string::npos) {

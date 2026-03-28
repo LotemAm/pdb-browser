@@ -104,12 +104,17 @@ if(ENABLE_TESTS)
         tests/PrettifyTests.cpp
         tests/PdbIndexTests.cpp
         tests/ExporterTests.cpp
+        tests/CodeGenTests.cpp
         # Testable source modules (no DIA/SDL/ImGui dependency)
         src/pdb/Prettify.cpp
         src/pdb/PrettifyCpp.cpp
         src/pdb/PrettifyRust.cpp
         src/pdb/PdbIndex.cpp
         src/export/Exporter.cpp
+        src/codegen/CodeGen.cpp
+        src/codegen/CodeGenC.cpp
+        src/codegen/CodeGenCpp.cpp
+        src/codegen/CodeGenRust.cpp
     )
 
     target_include_directories(pdb-browser-tests PRIVATE src/)
