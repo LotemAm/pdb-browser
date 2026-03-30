@@ -4,6 +4,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "pdb/PdbIndex.h"
@@ -55,6 +56,11 @@ struct AppState {
 
     // ── Browser tab ──────────────────────────────────────────────────────────
     BrowserTab activeBrowserTab{BrowserTab::Types};
+
+    // ── Compiland filter ─────────────────────────────────────────────────────
+    bool showCompilandFilter{false};
+    std::unordered_set<SymbolId> hiddenCompilands;  // compilands unchecked by user
+    bool hideUnassignedCompiland{false};             // hide symbols with no compiland
 
     // ── Export ────────────────────────────────────────────────────────────────
     bool         showExportDialog{false};                  // open the export settings dialog

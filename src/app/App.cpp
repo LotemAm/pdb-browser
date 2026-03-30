@@ -302,7 +302,7 @@ void App::render()
     // PdbIndex (adding child symbols, populating members, etc.).  Rendering
     // panels that iterate the index concurrently would race against those
     // mutations and crash on vector reallocation.  Skip them until done.
-    if (!m_exportDialog.isLoading()) {
+    if (!m_exportDialog.isLoading() && !m_compFilterDialog.isResolving()) {
         m_browserPanel.render(m_state.get());
         m_inspectorPanel.render(m_state.get());
 
@@ -332,6 +332,8 @@ void App::render()
         ImGui::End();
         ImGui::PopStyleVar();
     }
+
+    m_compFilterDialog.render(m_state.get());
 
     // Loading overlay
     if (m_state->loadState.load() == LoadState::Loading) {
@@ -372,6 +374,11 @@ void App::renderMenuBar()
             m_state->showSearch = !m_state->showSearch;
             if (m_state->showSearch) m_state->searchFocusInput = true;
         }
+        {
+            bool hasIndex = m_state->activeIndex != nullptr;
+            if (ImGui::MenuItem("Compiland Filter...", nullptr, false, hasIndex))
+                m_state->showCompilandFilter = true;
+        }
         ImGui::Separator();
         if (ImGui::MenuItem("Prettify Names", nullptr, m_state->prettifyNames)) {
             m_state->prettifyNames = !m_state->prettifyNames;
@@ -404,6 +411,8 @@ void App::openPdb(const std::string& path)
     m_state->selectedSymbol = INVALID_SYMBOL_ID;
     m_state->navBack.clear();
     m_state->navForward.clear();
+    m_state->hiddenCompilands.clear();
+    m_state->hideUnassignedCompiland = false;
     m_state->loadState.store(LoadState::Loading);
     m_state->fileExistsCache.clear();
 
@@ -417,4 +426,6 @@ void App::onSymbolClicked(SymbolId symbolId)
 
     std::thread(backgroundGetSymbolData, m_state.get(), symbolId).detach();
 }
+
+
 

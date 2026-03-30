@@ -20,6 +20,8 @@ private:
     bool        m_cachedPrettify = true;
     const void* m_cachedIndex = nullptr;
     size_t      m_cachedSymbolCount = 0;
+    size_t      m_cachedHiddenCount = 0;
+    bool        m_cachedHideUnassigned = false;
 
     // Per-tab filtered ID caches
     std::vector<SymbolId> m_filteredUdts;

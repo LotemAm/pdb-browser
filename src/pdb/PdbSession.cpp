@@ -382,6 +382,60 @@ std::expected<SymbolNode, std::string> PdbSession::loadSymbolData(std::shared_pt
 	});
 }
 
+void PdbSession::resolveAllCompilandIds(PdbIndex& index, std::atomic<int>& progress, std::atomic<bool>& cancel)
+{
+    // Snapshot the count — only resolve symbols that existed before we started.
+    // resolveLexicalCompiland may add new compiland symbols via registerCompiland,
+    // but those are compilands themselves and don't need resolution.
+    const size_t total = index.symbolCount();
+    for (size_t i = 0; i < total; ++i) {
+        if (cancel.load()) break;
+
+        // Fetch the symbol — note: pointer may be invalidated by addSymbol below,
+        // so we read kind/compilandId/pdbId/rva into locals before calling DIA.
+        auto* sym = index.getSymbol(static_cast<SymbolId>(i));
+        if (!sym || sym->compilandId != INVALID_SYMBOL_ID) {
+            progress.store(static_cast<int>(i + 1));
+            continue;
+        }
+
+        // Skip compilands themselves and internal types
+        if (sym->kind == SymbolKind::Compiland ||
+            sym->kind == SymbolKind::BaseType ||
+            sym->kind == SymbolKind::PointerType ||
+            sym->kind == SymbolKind::ArrayType ||
+            sym->kind == SymbolKind::FunctionType ||
+            sym->kind == SymbolKind::Unknown)
+        {
+            progress.store(static_cast<int>(i + 1));
+            continue;
+        }
+
+        // Copy fields needed for DIA lookup before any potential reallocation
+        PdbId pdbId = sym->pdbId;
+        uint32_t rva = sym->rva;
+
+        // Look up DIA symbol
+        CComPtr<IDiaSymbol> diaSym;
+        if (pdbId != 0 && m_session->symbolById(pdbId, &diaSym) == S_OK && diaSym) {
+            SymbolId compId = resolveLexicalCompiland(diaSym, index);
+            // Re-fetch pointer — index may have grown via registerCompiland
+            auto* node = index.getSymbol(static_cast<SymbolId>(i));
+            if (node) node->compilandId = compId;
+        } else if (rva != 0) {
+            IDiaSymbol* pRaw = nullptr;
+            if (m_session->findSymbolByRVA(rva, SymTagNull, &pRaw) == S_OK && pRaw) {
+                CComPtr<IDiaSymbol> diaSym2(pRaw);
+                SymbolId compId = resolveLexicalCompiland(diaSym2, index);
+                auto* node = index.getSymbol(static_cast<SymbolId>(i));
+                if (node) node->compilandId = compId;
+            }
+        }
+
+        progress.store(static_cast<int>(i + 1));
+    }
+}
+
 static int64_t variantToInt64(const VARIANT& v);
 
 // Add a DIA type symbol to the index.  If it's a pointer or array, also add
@@ -618,7 +672,6 @@ void PdbSession::indexCompilands(IDiaSession* session, PdbIndex& index)
 
         SymbolNode node = extractSymbol(compiland, SymbolKind::Compiland);
         index.addSymbol(std::move(node));
-        // Children (functions, etc.) are not enumerated here — lazy loaded on expand
     }
 }
 

@@ -21,6 +21,10 @@ public:
     // Loads nested data of a symbol
     std::expected<SymbolNode, std::string> loadSymbolData(std::shared_ptr<PdbIndex> activeIndex, SymbolId id);
 
+    // Resolve compilandId for all symbols that don't have one yet.
+    // Called from a background thread; writes directly to SymbolNode::compilandId.
+    void resolveAllCompilandIds(PdbIndex& index, std::atomic<int>& progress, std::atomic<bool>& cancel);
+
 private:
     void indexCompilands(struct IDiaSession* session, PdbIndex& index);
     void indexTypes(struct IDiaSession* session, PdbIndex& index);

@@ -7,6 +7,7 @@
 
 #include <imgui.h>
 #include <cstring>
+#include <unordered_set>
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -57,11 +58,14 @@ static void renderSymbolNode(AppState* state, const SymbolNode* node)
 // ── filter cache ─────────────────────────────────────────────────────────────
 
 static void filterIds(const PdbIndex* index, const std::vector<SymbolId>& source,
-                      std::vector<SymbolId>& dest, const char* filter, bool prettify)
+                      std::vector<SymbolId>& dest, const char* filter, bool prettify,
+                      const std::unordered_set<SymbolId>* hiddenCompilands = nullptr,
+                      bool hideUnassigned = false)
 {
     dest.clear();
     bool hasFilter = filter && filter[0] != '\0';
-    if (!hasFilter) {
+    bool hasCompFilter = hiddenCompilands && !hiddenCompilands->empty();
+    if (!hasFilter && !hasCompFilter && !hideUnassigned) {
         dest = source;
         return;
     }
@@ -69,8 +73,14 @@ static void filterIds(const PdbIndex* index, const std::vector<SymbolId>& source
     for (SymbolId id : source) {
         const SymbolNode* node = index->getSymbol(id);
         if (!node) continue;
-        if (symbolMatchesFilter(*node, filter, prettify))
-            dest.push_back(id);
+        if (node->compilandId == INVALID_SYMBOL_ID) {
+            if (hideUnassigned) continue;
+        } else if (hasCompFilter && hiddenCompilands->contains(node->compilandId)) {
+            continue;
+        }
+        if (hasFilter && !symbolMatchesFilter(*node, filter, prettify))
+            continue;
+        dest.push_back(id);
     }
 }
 
@@ -79,18 +89,22 @@ void BrowserPanel::rebuildFilteredIds(AppState* state)
     PdbIndex* index = state->activeIndex.get();
     const char* filter = m_filterBuf;
     bool prettify = state->prettifyNames;
+    const auto* hidden = &state->hiddenCompilands;
+    bool hideUnassigned = state->hideUnassignedCompiland;
 
-    filterIds(index, index->udts(),       m_filteredUdts,       filter, prettify);
-    filterIds(index, index->enums(),      m_filteredEnums,      filter, prettify);
-    filterIds(index, index->functions(),  m_filteredFunctions,  filter, prettify);
+    filterIds(index, index->udts(),       m_filteredUdts,       filter, prettify, hidden, hideUnassigned);
+    filterIds(index, index->enums(),      m_filteredEnums,      filter, prettify, hidden, hideUnassigned);
+    filterIds(index, index->functions(),  m_filteredFunctions,  filter, prettify, hidden, hideUnassigned);
     filterIds(index, index->compilands(), m_filteredCompilands, filter, prettify);
-    filterIds(index, index->typedefs(),   m_filteredTypedefs,   filter, prettify);
-    filterIds(index, index->globals(),    m_filteredGlobals,    filter, prettify);
+    filterIds(index, index->typedefs(),   m_filteredTypedefs,   filter, prettify, hidden, hideUnassigned);
+    filterIds(index, index->globals(),    m_filteredGlobals,    filter, prettify, hidden, hideUnassigned);
 
     m_cachedFilter = filter;
     m_cachedPrettify = prettify;
     m_cachedIndex = index;
     m_cachedSymbolCount = index->symbolCount();
+    m_cachedHiddenCount = state->hiddenCompilands.size();
+    m_cachedHideUnassigned = hideUnassigned;
 }
 
 // ── generic tab renderer ─────────────────────────────────────────────────────
@@ -241,7 +255,9 @@ void BrowserPanel::render(AppState* state)
     bool needsRebuild = (m_cachedFilter != m_filterBuf)
                       || (m_cachedPrettify != state->prettifyNames)
                       || (m_cachedIndex != static_cast<const void*>(index))
-                      || (m_cachedSymbolCount != index->symbolCount());
+                      || (m_cachedSymbolCount != index->symbolCount())
+                      || (m_cachedHiddenCount != state->hiddenCompilands.size())
+                      || (m_cachedHideUnassigned != state->hideUnassignedCompiland);
     if (needsRebuild)
         rebuildFilteredIds(state);
 

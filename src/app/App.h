@@ -6,6 +6,7 @@
 #include "app/AppState.h"
 #include "pdb/SymbolNode.h"
 #include "ui/BrowserPanel.h"
+#include "ui/CompFilterDialog.h"
 #include "ui/GraphPanel.h"
 #include "ui/InspectorPanel.h"
 #include "ui/ExportDialog.h"
@@ -40,9 +41,10 @@ private:
 
     std::unique_ptr<AppState> m_state;
 
-	BrowserPanel   m_browserPanel;
-	GraphPanel     m_graphPanel;
-	InspectorPanel m_inspectorPanel;
-	SearchDialog   m_searchDialog;
-	ExportDialog   m_exportDialog;
+	BrowserPanel     m_browserPanel;
+	GraphPanel       m_graphPanel;
+	InspectorPanel   m_inspectorPanel;
+	SearchDialog     m_searchDialog;
+	ExportDialog     m_exportDialog;
+	CompFilterDialog m_compFilterDialog;
 };

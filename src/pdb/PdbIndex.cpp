@@ -2,9 +2,12 @@
 
 void PdbIndex::reserve(size_t estimatedSymbols)
 {
-    m_symbols.reserve(estimatedSymbols);
-    m_pdbIdIndex.reserve(estimatedSymbols);
-    m_nameIndex.reserve(estimatedSymbols);
+    if (estimatedSymbols <= 0x10000)
+    {
+        m_symbols.reserve(estimatedSymbols);
+        m_pdbIdIndex.reserve(estimatedSymbols);
+        m_nameIndex.reserve(estimatedSymbols);
+    }
 }
 
 SymbolId PdbIndex::addSymbol(SymbolNode node)
@@ -64,3 +67,4 @@ SymbolId PdbIndex::findByPdbId(PdbId pdbId) const
     auto it = m_pdbIdIndex.find(pdbId);
     return it != m_pdbIdIndex.end() ? it->second : INVALID_SYMBOL_ID;
 }
+
