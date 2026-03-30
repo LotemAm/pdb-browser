@@ -393,6 +393,27 @@ static void renderUDT(const SymbolNode& sym, AppState* state)
         }
     }
 
+    // ── Derived classes ─────────────────────────────────────────────────────
+    if (!udt.derivedClasses.empty()) {
+        ImGui::Spacing();
+        ImGui::SeparatorText("Derived Classes");
+        for (SymbolId dcId : udt.derivedClasses) {
+            const SymbolNode* dc = index.getSymbol(dcId);
+            if (!dc) continue;
+            ImGui::Bullet();
+            ImGui::SameLine();
+            auto dcDn = displayName(*dc, state->prettifyNames);
+            ImGui::PushID(static_cast<int>(dcId) + 200000);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_HeaderActive]);
+            if (ImGui::SmallButton(sv_cstr(dcDn)))
+                state->selectSymbol(dcId);
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Click to inspect %.*s", static_cast<int>(dcDn.size()), dcDn.data());
+            ImGui::PopID();
+        }
+    }
+
     // ── Friends ──────────────────────────────────────────────────────────────
     if (!udt.friends.empty()) {
         ImGui::TextDisabled("Friends:");

@@ -15,18 +15,6 @@ static std::string_view symName(const SymbolNode& sym, bool prettify)
     return displayName(sym, prettify);
 }
 
-// Strip leading "public: ", "private: ", "protected: " from DIA undecorated names.
-static std::string stripAccessSpecifiers(std::string_view s)
-{
-    for (auto prefix : {"public: ", "private: ", "protected: "}) {
-        if (s.starts_with(prefix)) {
-            s.remove_prefix(std::string_view{prefix}.size());
-            break;
-        }
-    }
-    return std::string{s};
-}
-
 // Detect access level from DIA undecorated name prefix.
 // Returns 0=public, 1=protected, 2=private, 3=unknown.
 static int detectAccess(const SymbolNode& sym)

@@ -18,3 +18,9 @@ std::string_view displayName(const SymbolNode& sym, bool prettify);
 std::string_view displayTypeName(std::string_view rawTypeName,
                                  std::string_view prettyTypeName,
                                  bool prettify);
+
+// Strip leading "public: ", "private: ", "protected: " from DIA undecorated names.
+std::string stripAccessSpecifiers(std::string_view s);
+
+// Strip access specifiers plus "virtual " and "static " prefixes.
+std::string stripFunctionQualifiers(std::string_view s);

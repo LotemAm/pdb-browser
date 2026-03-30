@@ -141,6 +141,7 @@ struct UdtData {
     bool                     isForwardRef{false};
     std::vector<MemberInfo>  members;
     std::vector<SymbolId>    baseClasses;   // parent UDT ids
+    std::vector<SymbolId>    derivedClasses;// child UDT ids (populated incrementally)
     std::vector<SymbolId>    friends;       // friend class/function ids
 };
 

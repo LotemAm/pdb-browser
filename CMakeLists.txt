@@ -40,9 +40,19 @@ add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/std:c++latest>)
 # ── vcpkg packages ──────────────────────────────────────────────────────────
 find_package(SDL3 CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
-find_package(unofficial-imgui-node-editor CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(OpenGL REQUIRED)
+
+# ── imnodes (fetched at configure time) ─────────────────────────────────────
+include(FetchContent)
+FetchContent_Declare(
+    imnodes
+    GIT_REPOSITORY https://github.com/Nelarius/imnodes.git
+    GIT_TAG        b2ec254ce576ac3d42dfb7aef61deadbff8e7211  # 2025-06-25
+)
+set(IMNODES_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(IMNODES_IMGUI_TARGET_NAME imgui::imgui CACHE STRING "" FORCE)
+FetchContent_MakeAvailable(imnodes)
 
 # ── DIA SDK ─────────────────────────────────────────────────────────────────
 include(cmake/FindDIASDK.cmake)
@@ -72,7 +82,7 @@ target_include_directories(pdb-browser PRIVATE
 
 target_link_libraries(pdb-browser PRIVATE
     imgui::imgui
-    unofficial::imgui-node-editor::imgui-node-editor
+    imnodes
     SDL3::SDL3
     nlohmann_json::nlohmann_json
     OpenGL::GL

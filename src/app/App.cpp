@@ -5,6 +5,7 @@
 #include "pdb/PdbIndex.h"
 
 #include <imgui.h>
+#include <imnodes.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_opengl3.h>
 #include <imgui_internal.h>
@@ -95,6 +96,7 @@ App::~App()
 {
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
+    ImNodes::DestroyContext();
     ImGui::DestroyContext();
 
     if (m_glContext) SDL_GL_DestroyContext(m_glContext);
@@ -138,6 +140,7 @@ bool App::init()
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    ImNodes::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
@@ -307,7 +310,7 @@ void App::render()
         m_inspectorPanel.render(m_state.get());
 
         // TODO: Disabled Graph panel for now since it doesn't render correctly
-        //m_graphPanel.render(m_state.get());
+        m_graphPanel.render(m_state.get());
 
         // Force Inspector as the active tab after the first couple of frames
         if (s_focusCountdown > 0 && --s_focusCountdown == 0)

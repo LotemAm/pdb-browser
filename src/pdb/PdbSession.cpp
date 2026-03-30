@@ -1119,17 +1119,51 @@ void PdbSession::getUDTSymbolData(SymbolId targetId, IDiaSymbol* diaSym, PdbInde
     // ── Compiland (lexical parent) ──────────────────────────────────────────
     SymbolId compilandId = resolveLexicalCompiland(diaSym, index);
 
+    // ── 6. Derived classes ────────────────────────────────────────────────────
+    // a) Register this UDT as derived on each of its base classes.
+    // b) Scan all loaded UDTs — any that list targetId as a base are our derived.
+    std::vector<SymbolId> derivedClasses;
+
+    for (SymbolId udtId : index.udts()) {
+        if (udtId == targetId) continue;
+        auto* udtSym = index.getSymbol(udtId);
+        if (!udtSym || !udtSym->childrenLoaded) continue;
+        auto* otherUdt = std::get_if<UdtData>(&udtSym->kindData);
+        if (!otherUdt) continue;
+        for (SymbolId baseId : otherUdt->baseClasses) {
+            if (baseId == targetId) {
+                derivedClasses.push_back(udtId);
+                break;
+            }
+        }
+    }
+
     // ── Write back (index may have reallocated above, so re-fetch by id) ─────
     auto* node = index.getSymbol(targetId);
     if (node) {
         auto& udt            = std::get<UdtData>(node->kindData);
         udt.members          = std::move(members);
         udt.baseClasses      = std::move(baseClasses);
+        udt.derivedClasses   = std::move(derivedClasses);
         udt.friends          = std::move(friends);
         node->children       = std::move(children);
         node->compilandId    = compilandId;
         node->templateArgs   = resolveTemplateArgs(node->name, index);
         node->childrenLoaded = true;
+    }
+
+    // Register this UDT as a derived class on each base (if base is already loaded)
+    for (SymbolId baseId : std::get<UdtData>(index.getSymbol(targetId)->kindData).baseClasses) {
+        auto* baseSym = index.getSymbol(baseId);
+        if (!baseSym || !baseSym->childrenLoaded) continue;
+        auto* baseUdt = std::get_if<UdtData>(&baseSym->kindData);
+        if (!baseUdt) continue;
+        // Avoid duplicates
+        bool found = false;
+        for (SymbolId d : baseUdt->derivedClasses)
+            if (d == targetId) { found = true; break; }
+        if (!found)
+            baseUdt->derivedClasses.push_back(targetId);
     }
 }
 

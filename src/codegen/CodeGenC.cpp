@@ -14,18 +14,6 @@ static std::string_view symName(const SymbolNode& sym, bool prettify)
     return displayName(sym, prettify);
 }
 
-// Strip leading "public: ", "private: ", "protected: " from DIA undecorated names.
-static std::string stripAccessSpecifiers(std::string_view s)
-{
-    for (auto prefix : {"public: ", "private: ", "protected: "}) {
-        if (s.starts_with(prefix)) {
-            s.remove_prefix(std::string_view{prefix}.size());
-            break;
-        }
-    }
-    return std::string{s};
-}
-
 // Remove "ClassName::" qualifier from a function signature.
 // Handles the pattern: "rettype ClassName::funcname(..." → "rettype funcname(..."
 static std::string stripClassPrefix(std::string s)

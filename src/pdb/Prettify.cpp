@@ -42,3 +42,30 @@ std::string_view displayTypeName(std::string_view rawTypeName,
         return prettyTypeName;
     return rawTypeName;
 }
+
+std::string stripAccessSpecifiers(std::string_view s)
+{
+    for (auto prefix : {"public: ", "private: ", "protected: "}) {
+        if (s.starts_with(prefix)) {
+            s.remove_prefix(std::string_view{prefix}.size());
+            break;
+        }
+    }
+    return std::string{s};
+}
+
+std::string stripFunctionQualifiers(std::string_view s)
+{
+    for (;;) {
+        bool changed = false;
+        for (auto prefix : {"public: ", "private: ", "protected: ",
+                            "virtual ", "static "}) {
+            if (s.starts_with(prefix)) {
+                s.remove_prefix(std::string_view{prefix}.size());
+                changed = true;
+            }
+        }
+        if (!changed) break;
+    }
+    return std::string{s};
+}
